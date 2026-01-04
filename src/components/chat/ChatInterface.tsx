@@ -1,0 +1,475 @@
+"use client";
+
+import React, { useState, useRef, useEffect } from 'react';
+import { Send, Mic, Smile, Image as ImageIcon, Loader2, Sparkles, BookOpen, Coffee, BrainCircuit, Wand2, X, Phone, PhoneOff } from 'lucide-react';
+import clsx from 'clsx';
+import { AIService, Message, Personality, PRESETS } from '@/lib/ai-service';
+import { generateQuiz, generateStorySegment, generatePersonalityIdea, elevenLabsTTS } from '@/app/actions';
+import { QuizCard } from '@/components/gamification/QuizCard';
+import { StoryBuilder } from '@/components/gamification/StoryBuilder';
+import { CustomizePersonalityModal } from './CustomizePersonalityModal';
+import { Avatar, Expression } from './Avatar';
+import { CallInterface } from './CallInterface';
+import { useAudioAnalyzer } from '@/hooks/useAudioAnalyzer';
+
+declare global {
+    interface Window {
+        webkitSpeechRecognition: any;
+    }
+}
+
+export function ChatInterface() {
+    const [messages, setMessages] = useState<Message[]>([
+        {
+            id: '1',
+            sender: 'ai',
+            text: "Hi there! I'm Bud-AI. I'm so happy to see you! 🌟 What shall we play or talk about today?",
+            timestamp: new Date()
+        }
+    ]);
+    const [inputText, setInputText] = useState('');
+    const [isTyping, setIsTyping] = useState(false);
+    const [personality, setPersonality] = useState<Personality>(PRESETS.buddy);
+    const [isCustomizing, setIsCustomizing] = useState(false);
+    const [gameMode, setGameMode] = useState<'none' | 'quiz' | 'story'>('none');
+    const [selectedImage, setSelectedImage] = useState<string | null>(null);
+    const [isListening, setIsListening] = useState(false);
+    const [isSpeaking, setIsSpeaking] = useState(false);
+    const [currentExpression, setCurrentExpression] = useState<Expression>('idle');
+    const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
+    const [isCallActive, setIsCallActive] = useState(false);
+    const volume = useAudioAnalyzer(audioStream);
+
+    const recognitionRef = useRef<any>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages, isTyping, gameMode]);
+
+    // Persistence Effect
+    useEffect(() => {
+        const saved = localStorage.getItem('bud_custom_personality');
+        if (saved) {
+            try {
+                const p = JSON.parse(saved);
+                setPersonality(p);
+                AIService.setPersonality(p);
+            } catch (e) {
+                console.error("Failed to load saved personality", e);
+            }
+        }
+
+        // Initialize Speech Recognition
+        if (typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
+            const SpeechRecognition = window.webkitSpeechRecognition;
+            recognitionRef.current = new SpeechRecognition();
+            recognitionRef.current.continuous = false;
+            recognitionRef.current.interimResults = false;
+            recognitionRef.current.lang = 'en-US';
+
+            recognitionRef.current.onresult = (event: any) => {
+                const transcript = event.results[0][0].transcript;
+                setInputText(transcript);
+                setIsListening(false);
+                // We'll call a special handleVoiceSend to immediately process
+                handleVoiceSend(transcript);
+            };
+
+            recognitionRef.current.onerror = (event: any) => {
+                console.error('Speech recognition error', event.error);
+                setIsListening(false);
+            };
+
+            recognitionRef.current.onend = () => {
+                setIsListening(false);
+                setAudioStream(null);
+            };
+        }
+    }, []);
+
+    const speakResponse = async (text: string) => {
+        setIsSpeaking(true);
+        try {
+            // Try ElevenLabs first
+            const { audioContent, error } = await elevenLabsTTS(text);
+
+            if (audioContent && !error) {
+                const audio = new Audio(`data:audio/mpeg;base64,${audioContent}`);
+                audio.onended = () => setIsSpeaking(false);
+                audio.onerror = () => {
+                    console.error("Audio playback error, falling back to system TTS");
+                    fallbackSpeak(text);
+                };
+                await audio.play();
+                return;
+            } else {
+                if (error) console.warn("ElevenLabs Error:", error);
+                fallbackSpeak(text);
+            }
+        } catch (err) {
+            console.error("TTS Error:", err);
+            fallbackSpeak(text);
+        }
+    };
+
+    const fallbackSpeak = (text: string) => {
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 1.0;
+            utterance.pitch = 1.2;
+            utterance.onstart = () => setIsSpeaking(true);
+            utterance.onend = () => setIsSpeaking(false);
+            utterance.onerror = () => setIsSpeaking(false);
+            window.speechSynthesis.speak(utterance);
+        } else {
+            setIsSpeaking(false);
+        }
+    };
+
+    const startListening = async () => {
+        if (recognitionRef.current) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                setAudioStream(stream);
+                setIsListening(true);
+                recognitionRef.current.start();
+            } catch (err) {
+                console.error("Microphone access denied", err);
+                alert("Please allow microphone access to use voice chat.");
+            }
+        } else {
+            alert("Speech recognition is not supported in this browser.");
+        }
+    };
+
+    const handleVoiceSend = async (text: string) => {
+        if (!text.trim() || isTyping) return;
+
+        const newMessage: Message = {
+            id: Date.now().toString(),
+            sender: 'user',
+            text: text,
+            timestamp: new Date()
+        };
+
+        setMessages(prev => [...prev, newMessage]);
+        setIsTyping(true);
+        setCurrentExpression('thinking');
+
+        try {
+            const response = await AIService.sendMessage(text, messages);
+            const aiResponse: Message = {
+                id: (Date.now() + 1).toString(),
+                sender: 'ai',
+                text: response.text,
+                image: response.image,
+                timestamp: new Date()
+            };
+            setMessages(prev => [...prev, aiResponse]);
+
+            // Mood parsing
+            if (response.mood) setCurrentExpression(response.mood as Expression);
+            else setCurrentExpression('idle');
+
+            // Voice response
+            speakResponse(response.text);
+        } catch (error) {
+            console.error("AI Error", error);
+        } finally {
+            setIsTyping(false);
+        }
+    };
+
+    const handleSend = async () => {
+        if ((!inputText.trim() && !selectedImage) || isTyping) return;
+
+        const userText = inputText;
+        const currentImage = selectedImage;
+
+        const newMessage: Message = {
+            id: Date.now().toString(),
+            sender: 'user',
+            text: userText,
+            image: currentImage || undefined,
+            timestamp: new Date()
+        };
+
+        setMessages(prev => [...prev, newMessage]);
+        setInputText('');
+        setSelectedImage(null);
+        setIsTyping(true);
+        setCurrentExpression('thinking');
+
+        try {
+            const response = await AIService.sendMessage(userText, messages, currentImage || undefined);
+
+            const aiResponse: Message = {
+                id: (Date.now() + 1).toString(),
+                sender: 'ai',
+                text: response.text,
+                image: response.image,
+                timestamp: new Date()
+            };
+
+            setMessages(prev => [...prev, aiResponse]);
+
+            // Mood parsing
+            if (response.mood) setCurrentExpression(response.mood as Expression);
+            else setCurrentExpression('idle');
+
+            // Conditional Voice: handleSend (text) does NOT call speakResponse
+        } catch (error) {
+            console.error("AI Error", error);
+        } finally {
+            setIsTyping(false);
+        }
+    };
+
+    const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setSelectedImage(reader.result as string);
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const changePersonality = (p: Personality) => {
+        AIService.setPersonality(p);
+        setPersonality(p);
+        setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            sender: 'ai',
+            text: p.id === 'buddy' ? "Yay! Let's play! 🎈" : p.id === 'tutor' ? "Ready to learn something new? 📚" : "Peace and calm. 🌿",
+            timestamp: new Date()
+        }]);
+    };
+
+    const handleSaveCustomPersonality = (p: Personality) => {
+        localStorage.setItem('bud_custom_personality', JSON.stringify(p));
+        changePersonality(p);
+    };
+
+    return (
+        <div className="flex flex-col h-[calc(100vh-8rem)]">
+            {/* Personality & Game Header */}
+            <div className="flex flex-nowrap md:flex-wrap items-center gap-2 mb-4 p-2 bg-white/50 backdrop-blur-sm rounded-2xl w-full md:w-fit mx-auto shadow-sm overflow-x-auto no-scrollbar pb-3 md:pb-2">
+                <button
+                    onClick={() => changePersonality(PRESETS.buddy)}
+                    className={clsx("p-2 rounded-xl flex items-center gap-2 transition-all", personality.id === 'buddy' ? "bg-brand-primary text-white shadow-md glow" : "hover:bg-white text-slate-500")}
+                >
+                    <Sparkles className="w-4 h-4" /> <span className="text-sm font-medium">Buddy</span>
+                </button>
+                <button
+                    onClick={() => changePersonality(PRESETS.tutor)}
+                    className={clsx("p-2 rounded-xl flex items-center gap-2 transition-all", personality.id === 'tutor' ? "bg-blue-500 text-white shadow-md glow" : "hover:bg-white text-slate-500")}
+                >
+                    <BookOpen className="w-4 h-4" /> <span className="text-sm font-medium">Tutor</span>
+                </button>
+                <button
+                    onClick={() => changePersonality(PRESETS.sage)}
+                    className={clsx("p-2 rounded-xl flex items-center gap-2 transition-all", personality.id === 'sage' ? "bg-emerald-500 text-white shadow-md glow" : "hover:bg-white text-slate-500")}
+                >
+                    <Coffee className="w-4 h-4" /> <span className="text-sm font-medium">Sage</span>
+                </button>
+                <button
+                    onClick={() => setIsCustomizing(true)}
+                    className={clsx("p-2 rounded-xl flex items-center gap-2 transition-all", personality.id === 'custom' ? "bg-fuchsia-600 text-white shadow-md glow" : "hover:bg-white text-slate-500")}
+                >
+                    <Wand2 className="w-4 h-4" /> <span className="text-sm font-medium">{personality.id === 'custom' ? personality.name : 'Custom'}</span>
+                </button>
+                <div className="w-px h-6 bg-slate-300 mx-1 self-center"></div>
+
+                <button
+                    onClick={() => setGameMode(gameMode === 'quiz' ? 'none' : 'quiz')}
+                    className={clsx("p-2 rounded-xl flex items-center gap-2 transition-all", gameMode === 'quiz' ? "bg-amber-500 text-white shadow-md" : "hover:bg-white text-slate-500")}
+                >
+                    <BrainCircuit className="w-4 h-4" /> <span className="text-sm font-medium">Quiz</span>
+                </button>
+                <button
+                    onClick={() => setGameMode(gameMode === 'story' ? 'none' : 'story')}
+                    className={clsx("p-2 rounded-xl flex items-center gap-2 transition-all", gameMode === 'story' ? "bg-fuchsia-500 text-white shadow-md" : "hover:bg-white text-slate-500")}
+                >
+                    <BookOpen className="w-4 h-4" /> <span className="text-sm font-medium">Story</span>
+                </button>
+                <div className="w-px h-6 bg-slate-300 mx-1 self-center"></div>
+                <button
+                    onClick={() => setIsCallActive(true)}
+                    className="p-2 rounded-xl flex items-center gap-2 transition-all bg-green-500 text-white shadow-md hover:bg-green-600 glow"
+                >
+                    <Phone className="w-4 h-4" /> <span className="text-sm font-medium">Call</span>
+                </button>
+            </div>
+
+            {/* Main Content Area */}
+            <div className="flex-1 overflow-y-auto space-y-6 p-4">
+                {gameMode === 'none' && (
+                    <div className="flex justify-center mb-8">
+                        <Avatar
+                            isListening={isListening}
+                            isSpeaking={isSpeaking}
+                            isTyping={isTyping}
+                            personality={personality}
+                            expression={currentExpression}
+                            volume={volume}
+                        />
+                    </div>
+                )}
+
+                {gameMode === 'quiz' ? (
+                    <div className="flex items-center justify-center h-full">
+                        <QuizCard onClose={() => setGameMode('none')} />
+                    </div>
+                ) : gameMode === 'story' ? (
+                    <div className="flex items-center justify-center h-full">
+                        <StoryBuilder onClose={() => setGameMode('none')} />
+                    </div>
+                ) : (
+                    <>
+                        {messages.map((msg) => (
+                            <div
+                                key={msg.id}
+                                className={clsx(
+                                    "flex w-full",
+                                    msg.sender === 'user' ? "justify-end" : "justify-start"
+                                )}
+                            >
+                                <div className={clsx(
+                                    "max-w-[80%] p-4 rounded-2xl shadow-sm relative animate-in fade-in slide-in-from-bottom-2 duration-300",
+                                    msg.sender === 'user'
+                                        ? "bg-brand-primary text-white rounded-br-none"
+                                        : "bg-white text-slate-800 rounded-bl-none border border-slate-100"
+                                )}>
+                                    {msg.image && (
+                                        <div className="mb-2 rounded-lg overflow-hidden border border-slate-100 bg-slate-50">
+                                            <img src={msg.image} alt="Sent image" className="max-w-full h-auto object-contain max-h-64" />
+                                        </div>
+                                    )}
+                                    <p className="text-lg leading-relaxed">{msg.text}</p>
+                                    <span className="text-[10px] opacity-70 absolute bottom-1 right-3">
+                                        {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                </div>
+                            </div>
+                        ))}
+
+                        {isTyping && (
+                            <div className="flex justify-start w-full">
+                                <div className="bg-white p-4 rounded-2xl rounded-bl-none border border-slate-100 shadow-sm flex items-center gap-2">
+                                    <div className="w-2 h-2 bg-brand-primary rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                                    <div className="w-2 h-2 bg-brand-primary rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                                    <div className="w-2 h-2 bg-brand-primary rounded-full animate-bounce"></div>
+                                </div>
+                            </div>
+                        )}
+                        <div ref={messagesEndRef} />
+                    </>
+                )}
+            </div>
+
+            {/* Input Area (only show if not in Game mode) */}
+            {gameMode === 'none' && (
+                <div className="mt-4 bg-white p-2 rounded-3xl shadow-lg border border-slate-100 flex items-center gap-2">
+                    <button className="p-3 text-slate-400 hover:text-brand-secondary hover:bg-slate-50 rounded-full transition-colors">
+                        <Smile className="w-6 h-6" />
+                    </button>
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="p-3 text-slate-400 hover:text-brand-secondary hover:bg-slate-50 rounded-full transition-colors"
+                    >
+                        <ImageIcon className="w-6 h-6" />
+                    </button>
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleImageSelect}
+                        accept="image/*"
+                        className="hidden"
+                    />
+
+                    <div className="flex-1 flex flex-col gap-2">
+                        {selectedImage && (
+                            <div className="relative w-20 h-20 ml-2 mt-2 group">
+                                <img src={selectedImage} alt="Preview" className="w-full h-full object-cover rounded-xl border border-slate-200" />
+                                <button
+                                    onClick={() => setSelectedImage(null)}
+                                    className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full shadow-md hover:bg-red-600 transition-colors"
+                                >
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </div>
+                        )}
+                        <input
+                            type="text"
+                            value={inputText}
+                            onChange={(e) => setInputText(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                            placeholder={`Talk to ${personality.name}...`}
+                            disabled={isTyping}
+                            className="bg-transparent border-none outline-none text-lg text-slate-700 placeholder:text-slate-300 px-2 py-3 w-full"
+                        />
+                    </div>
+
+
+                    {inputText.trim() || selectedImage ? (
+                        <button
+                            onClick={handleSend}
+                            disabled={isTyping}
+                            className="p-3 bg-brand-primary text-white rounded-full hover:bg-violet-600 transition-transform active:scale-95 shadow-md shadow-violet-200 disabled:opacity-50 disabled:scale-100"
+                        >
+                            {isTyping ? <Loader2 className="w-6 h-6 animate-spin" /> : <Send className="w-6 h-6" />}
+                        </button>
+                    ) : (
+                        <button
+                            onClick={startListening}
+                            disabled={isListening || isTyping}
+                            className={clsx(
+                                "p-3 rounded-full transition-all",
+                                isListening ? "bg-red-500 text-white animate-pulse" : "text-slate-400 hover:text-brand-primary hover:bg-slate-50"
+                            )}
+                        >
+                            <Mic className="w-6 h-6" />
+                        </button>
+                    )}
+                </div>
+            )}
+            {/* Custom Personality Modal */}
+            {isCustomizing && (
+                <CustomizePersonalityModal
+                    onClose={() => setIsCustomizing(false)}
+                    onSave={handleSaveCustomPersonality}
+                    initialData={personality.id === 'custom' ? personality : undefined}
+                />
+            )}
+
+            {/* Call Interface */}
+            {isCallActive && (
+                <CallInterface
+                    personality={personality}
+                    isListening={isListening}
+                    isSpeaking={isSpeaking}
+                    isTyping={isTyping}
+                    currentExpression={currentExpression}
+                    volume={volume}
+                    onHangUpAction={() => {
+                        setIsCallActive(false);
+                        if (audioStream) {
+                            audioStream.getTracks().forEach(track => track.stop());
+                            setAudioStream(null);
+                        }
+                    }}
+                    onStartListeningAction={startListening}
+                />
+            )}
+        </div>
+    );
+}
