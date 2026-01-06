@@ -22,26 +22,36 @@ const SUBJECTS = [
 
 export function QuizCard({ onClose }: { onClose?: () => void }) {
     const [loading, setLoading] = useState(false);
-    const [quizData, setQuizData] = useState<QuizData | null>(null);
+    const [quizQuestions, setQuizQuestions] = useState<QuizData[]>([]);
+    const [currentIndex, setCurrentIndex] = useState(0);
     const [selectedOption, setSelectedOption] = useState<string | null>(null);
     const [showResult, setShowResult] = useState(false);
+    const [score, setScore] = useState(0);
+    const [quizComplete, setQuizComplete] = useState(false);
     const [error, setError] = useState('');
 
     const [isSetup, setIsSetup] = useState(true);
-    const [selectedSubject, setSelectedSubject] = useState(SUBJECTS[1].id); // Default to Science
+    const [selectedSubject, setSelectedSubject] = useState(SUBJECTS[1].id);
     const [topic, setTopic] = useState("");
 
-    const fetchQuiz = async (overrideTopic?: string) => {
+    const fetchQuiz = async () => {
         setLoading(true);
         setError('');
         setSelectedOption(null);
         setShowResult(false);
+        setQuizComplete(false);
+        setCurrentIndex(0);
+        setScore(0);
+
         try {
-            const quizTopic = overrideTopic || `${selectedSubject}${topic ? `: ${topic}` : ''}`;
+            const quizTopic = `${selectedSubject}${topic ? `: ${topic}` : ''}`;
             const jsonString = await generateQuiz(quizTopic);
             const data = JSON.parse(jsonString);
+
             if (data.error) throw new Error(data.error);
-            setQuizData(data);
+            if (!data.questions || !Array.isArray(data.questions)) throw new Error("Invalid quiz format");
+
+            setQuizQuestions(data.questions);
             setIsSetup(false);
         } catch (err) {
             console.error(err);
@@ -51,16 +61,23 @@ export function QuizCard({ onClose }: { onClose?: () => void }) {
         }
     };
 
-    const startQuiz = () => {
-        fetchQuiz();
-    };
-
-    // Initial fetch removed, controlled by isSetup
-
     const handleOptionClick = (option: string) => {
         if (showResult) return;
         setSelectedOption(option);
         setShowResult(true);
+        if (option === quizQuestions[currentIndex].correctAnswer) {
+            setScore(prev => prev + 1);
+        }
+    };
+
+    const handleNext = () => {
+        if (currentIndex < quizQuestions.length - 1) {
+            setCurrentIndex(prev => prev + 1);
+            setSelectedOption(null);
+            setShowResult(false);
+        } else {
+            setQuizComplete(true);
+        }
     };
 
     if (isSetup) {
@@ -111,7 +128,7 @@ export function QuizCard({ onClose }: { onClose?: () => void }) {
                     </div>
 
                     <button
-                        onClick={startQuiz}
+                        onClick={fetchQuiz}
                         disabled={loading}
                         className="w-full py-4 bg-brand-primary text-white rounded-xl font-bold text-lg hover:bg-violet-600 transition-all shadow-lg shadow-violet-200 disabled:opacity-50 flex items-center justify-center gap-2"
                     >
@@ -122,24 +139,84 @@ export function QuizCard({ onClose }: { onClose?: () => void }) {
         );
     }
 
-    if (!quizData) {
-        if (error) {
-            return (
-                <div className="max-w-md w-full p-6 bg-white rounded-2xl shadow-lg border-red-100 flex flex-col items-center mx-auto my-4">
-                    <p className="text-red-500 mb-4">{error}</p>
-                    <button
-                        onClick={() => fetchQuiz()}
-                        className="px-4 py-2 bg-brand-primary text-white rounded-xl hover:bg-violet-600 transition"
-                    >
-                        Try Again
-                    </button>
+    if (loading) {
+        return (
+            <div className="max-w-md w-full bg-white rounded-3xl shadow-xl animate-in zoom-in-95 duration-300 mx-auto my-4 border-2 border-slate-100 p-12 flex flex-col items-center justify-center text-center">
+                <div className="relative mb-6">
+                    <div className="w-20 h-20 bg-brand-primary/10 rounded-full animate-ping absolute inset-0"></div>
+                    <div className="w-20 h-20 bg-brand-primary/20 rounded-full flex items-center justify-center relative z-10">
+                        <span className="text-4xl animate-bounce">🧠</span>
+                    </div>
                 </div>
-            );
-        }
-        return null; // Should be covered by loading or isSetup, but for TS safety
+                <h3 className="text-xl font-bold text-slate-800 mb-2">Bud is thinking...</h3>
+                <p className="text-slate-500 animate-pulse text-sm">Getting some super fun questions ready for you! ✨</p>
+            </div>
+        );
     }
 
-    const isCorrect = selectedOption === quizData.correctAnswer;
+    if (error) {
+        return (
+            <div className="max-w-md w-full p-8 bg-white rounded-3xl shadow-xl border-2 border-red-100 flex flex-col items-center mx-auto my-4 text-center">
+                <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-4">
+                    <span className="text-3xl">⚠️</span>
+                </div>
+                <p className="text-slate-800 font-bold mb-2">Oops! Something went wrong.</p>
+                <p className="text-slate-500 text-sm mb-6">{error}</p>
+                <button
+                    onClick={() => fetchQuiz()}
+                    className="w-full py-3 bg-brand-primary text-white rounded-xl font-bold hover:bg-violet-600 transition shadow-lg shadow-violet-200"
+                >
+                    Try Again 🔄
+                </button>
+                <button
+                    onClick={() => setIsSetup(true)}
+                    className="mt-3 text-slate-400 hover:text-slate-600 text-sm font-medium"
+                >
+                    Back to Subjects
+                </button>
+            </div>
+        );
+    }
+
+    if (quizComplete) {
+        return (
+            <div className="max-w-md w-full bg-white rounded-3xl shadow-xl overflow-hidden animate-in zoom-in-95 duration-300 mx-auto my-4 border-2 border-slate-100 p-8 flex flex-col items-center text-center">
+                <div className="w-20 h-20 bg-brand-primary/10 rounded-full flex items-center justify-center mb-6">
+                    <span className="text-4xl">🏆</span>
+                </div>
+                <h3 className="text-2xl font-bold text-slate-800 mb-2">Quiz Complete!</h3>
+                <p className="text-slate-500 mb-6">Great job explorer!</p>
+
+                <div className="bg-slate-50 rounded-2xl p-6 w-full mb-8">
+                    <p className="text-slate-400 text-sm font-bold uppercase tracking-widest mb-2">Final Score</p>
+                    <p className="text-5xl font-black text-brand-primary">{score} / {quizQuestions.length}</p>
+                </div>
+
+                <div className="flex flex-col gap-3 w-full">
+                    <button
+                        onClick={fetchQuiz}
+                        className="w-full py-4 bg-brand-primary text-white rounded-xl font-bold hover:bg-violet-600 transition-all shadow-lg shadow-violet-200"
+                    >
+                        Play Again ✨
+                    </button>
+                    <button
+                        onClick={() => setIsSetup(true)}
+                        className="w-full py-4 border-2 border-slate-100 text-slate-500 rounded-xl font-bold hover:bg-slate-50 transition-all"
+                    >
+                        Change Topic
+                    </button>
+                    {onClose && (
+                        <button onClick={onClose} className="mt-2 text-slate-400 hover:text-slate-600 text-sm font-medium">Exit Quiz</button>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    const currentQuestion = quizQuestions[currentIndex];
+    if (!currentQuestion) return null;
+
+    const isCorrect = selectedOption === currentQuestion.correctAnswer;
     const currentSubject = SUBJECTS.find(s => s.id === selectedSubject);
 
     return (
@@ -148,27 +225,33 @@ export function QuizCard({ onClose }: { onClose?: () => void }) {
             <div className={clsx("p-6 text-white text-center relative", currentSubject ? currentSubject.color.replace('bg-', 'bg-').split(' ')[0] : "bg-brand-primary")}>
                 <div className="absolute inset-0 bg-black/10"></div>
                 <div className="relative z-10">
-                    <BrainCircuit className="w-8 h-8 absolute -top-2 -left-2 opacity-30" />
-                    <h3 className="text-xl font-bold text-slate-900">Quiz Time! 🧠</h3>
-                    <p className="text-slate-800/80 text-sm mt-1">Topic: {selectedSubject}{topic ? ` - ${topic}` : ''}</p>
+                    <h3 className="text-xl font-bold text-slate-900">Question {currentIndex + 1} of {quizQuestions.length}</h3>
+                    <p className="text-slate-800/80 text-sm mt-1">{selectedSubject}{topic ? ` - ${topic}` : ''}</p>
                     {onClose && (
                         <button onClick={onClose} className="absolute -top-2 -right-2 text-slate-600 hover:text-slate-900">✕</button>
                     )}
+                </div>
+                {/* Progress Bar */}
+                <div className="absolute bottom-0 left-0 h-1 bg-white/30 w-full">
+                    <div
+                        className="h-full bg-white transition-all duration-500"
+                        style={{ width: `${((currentIndex) / quizQuestions.length) * 100}%` }}
+                    ></div>
                 </div>
             </div>
 
             {/* Question */}
             <div className="p-6">
                 <h4 className="text-xl font-semibold text-slate-800 mb-6 text-center leading-relaxed">
-                    {quizData.question}
+                    {currentQuestion.question}
                 </h4>
 
                 <div className="space-y-3">
-                    {quizData.options.map((option, idx) => {
+                    {currentQuestion.options.map((option, idx) => {
                         let stateStyles = "border border-slate-200 hover:bg-slate-50 hover:border-brand-primary/50 text-slate-700";
 
                         if (showResult) {
-                            if (option === quizData.correctAnswer) {
+                            if (option === currentQuestion.correctAnswer) {
                                 stateStyles = "bg-green-100 border-green-500 text-green-800 font-medium";
                             } else if (option === selectedOption) {
                                 stateStyles = "bg-red-50 border-red-500 text-red-800";
@@ -190,8 +273,8 @@ export function QuizCard({ onClose }: { onClose?: () => void }) {
                                 )}
                             >
                                 <span>{option}</span>
-                                {showResult && option === quizData.correctAnswer && <CheckCircle className="w-5 h-5 text-green-600" />}
-                                {showResult && option === selectedOption && option !== quizData.correctAnswer && <XCircle className="w-5 h-5 text-red-500" />}
+                                {showResult && option === currentQuestion.correctAnswer && <CheckCircle className="w-5 h-5 text-green-600" />}
+                                {showResult && option === selectedOption && option !== currentQuestion.correctAnswer && <XCircle className="w-5 h-5 text-red-500" />}
                             </button>
                         );
                     })}
@@ -203,23 +286,15 @@ export function QuizCard({ onClose }: { onClose?: () => void }) {
                         <p className={clsx("font-bold text-lg mb-2", isCorrect ? "text-green-600" : "text-brand-secondary")}>
                             {isCorrect ? "Correct! 🎉" : "Nice try! 🧐"}
                         </p>
-                        <p className="text-slate-600 leading-relaxed text-sm icon-text">
-                            {quizData.explanation}
+                        <p className="text-slate-600 leading-relaxed text-sm">
+                            {currentQuestion.explanation}
                         </p>
-                        <div className="flex gap-2 mt-4">
-                            <button
-                                onClick={() => fetchQuiz()}
-                                className="flex-1 py-3 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 transition flex items-center justify-center gap-2"
-                            >
-                                <RotateCcw className="w-4 h-4" /> Next Question
-                            </button>
-                            <button
-                                onClick={() => setIsSetup(true)}
-                                className="px-4 py-3 border-2 border-slate-200 text-slate-600 rounded-xl font-medium hover:bg-slate-50 transition"
-                            >
-                                Change Topic
-                            </button>
-                        </div>
+                        <button
+                            onClick={handleNext}
+                            className="w-full mt-4 py-3 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 transition flex items-center justify-center gap-2"
+                        >
+                            {currentIndex < quizQuestions.length - 1 ? "Next Question" : "See Results"}
+                        </button>
                     </div>
                 )}
             </div>

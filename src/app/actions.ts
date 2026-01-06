@@ -108,13 +108,21 @@ export async function generateAIResponse(
 
 
 export async function generateQuiz(topic: string): Promise<string> {
-    const prompt = `Generate a single fun, multiple-choice quiz question for a child about "${topic}". 
+    const prompt = `You are AI-Bud, a fun and energetic buddy for a child. Generate exactly 3 super fun and exciting multiple-choice quiz questions for a child about "${topic}". 
+    
+    CRITICAL: Ensure all 3 questions are UNIQUE and cover different aspects of the topic. Do not repeat facts or ask similar questions in the same batch.
+    
+    Make the questions engaging, use simple words, and include emojis in the question text.
     Return ONLY a JSON object with this exact format (no markdown):
     {
-      "question": "The question text",
-      "options": ["Option A", "Option B", "Option C", "Option D"],
-      "correctAnswer": "The text of the correct option",
-      "explanation": "A short, fun explanation of why it's correct"
+      "questions": [
+        {
+          "question": "The question text with emojis! 🌟",
+          "options": ["Option A", "Option B", "Option C", "Option D"],
+          "correctAnswer": "The text of the correct option",
+          "explanation": "A short, fun, and encouraging explanation of why it's correct! ✨"
+        }
+      ]
     }`;
 
     try {
