@@ -25,11 +25,29 @@ export function useAudioAnalyzer(stream: MediaStream | null) {
         source.connect(analyzer);
         analyzerRef.current = analyzer;
 
+        // On mobile, AudioContext often starts in 'suspended' state
+        if (audioContext.state === 'suspended') {
+            const resume = () => {
+                audioContext.resume().then(() => {
+                    console.log('AudioContext resumed successfully');
+                    window.removeEventListener('click', resume);
+                    window.removeEventListener('touchstart', resume);
+                });
+            };
+            window.addEventListener('click', resume);
+            window.addEventListener('touchstart', resume);
+        }
+
         const bufferLength = analyzer.frequencyBinCount;
         const dataArray = new Uint8Array(bufferLength);
 
         const updateVolume = () => {
             if (!analyzerRef.current) return;
+            if (audioContext.state === 'suspended') {
+                setVolume(0);
+                animationRef.current = requestAnimationFrame(updateVolume);
+                return;
+            }
 
             analyzerRef.current.getByteFrequencyData(dataArray);
 
@@ -51,6 +69,8 @@ export function useAudioAnalyzer(stream: MediaStream | null) {
         return () => {
             if (animationRef.current) cancelAnimationFrame(animationRef.current);
             if (audioContextRef.current) audioContextRef.current.close();
+            window.removeEventListener('click', () => { }); // Clean up any lingering listeners if necessary
+            window.removeEventListener('touchstart', () => { });
         };
     }, [stream]);
 

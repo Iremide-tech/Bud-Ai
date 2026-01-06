@@ -28,7 +28,7 @@ export function CallInterface({
     onStartListeningAction
 }: CallInterfaceProps) {
     return (
-        <div className="fixed inset-0 z-50 bg-slate-900 flex flex-col items-center justify-between p-8 text-white overflow-hidden">
+        <div className="fixed inset-0 z-50 bg-slate-900 flex flex-col items-center justify-between p-4 md:p-8 text-white overflow-hidden">
             {/* Background Decor */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
                 <div

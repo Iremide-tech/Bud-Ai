@@ -101,12 +101,22 @@ export function ChatInterface() {
 
             if (audioContent && !error) {
                 const audio = new Audio(`data:audio/mpeg;base64,${audioContent}`);
+
+                // On mobile, we might need to play on a user gesture first, 
+                // but usually, if this is called from an async event that started with a click, it's fine.
                 audio.onended = () => setIsSpeaking(false);
                 audio.onerror = () => {
                     console.error("Audio playback error, falling back to system TTS");
                     fallbackSpeak(text);
                 };
-                await audio.play();
+
+                const playPromise = audio.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(err => {
+                        console.error("Playback failed, likely due to user gesture requirement:", err);
+                        fallbackSpeak(text);
+                    });
+                }
                 return;
             } else {
                 if (error) console.warn("ElevenLabs Error:", error);
@@ -134,6 +144,15 @@ export function ChatInterface() {
     };
 
     const startListening = async () => {
+        // Unlock audio on mobile
+        if (typeof window !== 'undefined') {
+            const AudioContextClass = (window.AudioContext || (window as any).webkitAudioContext);
+            const tempCtx = new AudioContextClass();
+            if (tempCtx.state === 'suspended') {
+                tempCtx.resume();
+            }
+        }
+
         if (recognitionRef.current) {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
