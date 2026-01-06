@@ -26,14 +26,17 @@ export function useAudioAnalyzer(stream: MediaStream | null) {
         analyzerRef.current = analyzer;
 
         // On mobile, AudioContext often starts in 'suspended' state
-        if (audioContext.state === 'suspended') {
-            const resume = () => {
+        const resume = () => {
+            if (audioContext.state === 'suspended') {
                 audioContext.resume().then(() => {
                     console.log('AudioContext resumed successfully');
-                    window.removeEventListener('click', resume);
-                    window.removeEventListener('touchstart', resume);
                 });
-            };
+            }
+            window.removeEventListener('click', resume);
+            window.removeEventListener('touchstart', resume);
+        };
+
+        if (audioContext.state === 'suspended') {
             window.addEventListener('click', resume);
             window.addEventListener('touchstart', resume);
         }
@@ -69,8 +72,8 @@ export function useAudioAnalyzer(stream: MediaStream | null) {
         return () => {
             if (animationRef.current) cancelAnimationFrame(animationRef.current);
             if (audioContextRef.current) audioContextRef.current.close();
-            window.removeEventListener('click', () => { }); // Clean up any lingering listeners if necessary
-            window.removeEventListener('touchstart', () => { });
+            window.removeEventListener('click', resume);
+            window.removeEventListener('touchstart', resume);
         };
     }, [stream]);
 

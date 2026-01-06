@@ -12,6 +12,7 @@ interface CallInterfaceProps {
     isSpeaking: boolean;
     isTyping: boolean;
     currentExpression: Expression;
+    status: string;
     volume: number;
     onHangUpAction: () => void;
     onStartListeningAction: () => void;
@@ -23,6 +24,7 @@ export function CallInterface({
     isSpeaking,
     isTyping,
     currentExpression,
+    status,
     volume,
     onHangUpAction,
     onStartListeningAction
@@ -62,14 +64,19 @@ export function CallInterface({
                     />
 
                     {/* Status Overlays */}
-                    <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap">
-                        {isTyping && (
-                            <div className="flex items-center gap-2 bg-blue-500/80 backdrop-blur-sm px-4 py-2 rounded-full border border-blue-400/50 animate-pulse">
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                <span className="text-xs font-bold uppercase tracking-widest">Thinking...</span>
+                    <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 whitespace-nowrap flex flex-col items-center gap-2">
+                        {status && (
+                            <div className={clsx(
+                                "flex items-center gap-2 backdrop-blur-sm px-4 py-2 rounded-full border animate-in fade-in zoom-in duration-300",
+                                status.toLowerCase().includes('error') ? "bg-red-500/80 border-red-400/50" :
+                                    status.toLowerCase().includes('thinking') ? "bg-blue-500/80 border-blue-400/50" :
+                                        "bg-emerald-500/80 border-emerald-400/50"
+                            )}>
+                                {status.toLowerCase().includes('thinking') && <Loader2 className="w-4 h-4 animate-spin" />}
+                                <span className="text-xs font-bold uppercase tracking-widest">{status}</span>
                             </div>
                         )}
-                        {isSpeaking && !isTyping && (
+                        {!status && isSpeaking && (
                             <div className="flex items-center gap-2 bg-pink-500/80 backdrop-blur-sm px-4 py-2 rounded-full border border-pink-400/50">
                                 <span className="text-xs font-bold uppercase tracking-widest">Speaking</span>
                             </div>

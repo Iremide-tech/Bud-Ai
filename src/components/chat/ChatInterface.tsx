@@ -38,11 +38,18 @@ export function ChatInterface() {
     const [currentExpression, setCurrentExpression] = useState<Expression>('idle');
     const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
     const [isCallActive, setIsCallActive] = useState(false);
+    const [status, setStatus] = useState<string>('');
     const volume = useAudioAnalyzer(audioStream);
 
     const recognitionRef = useRef<any>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const messagesRef = useRef<Message[]>(messages);
+
+    // Sync messagesRef
+    useEffect(() => {
+        messagesRef.current = messages;
+    }, [messages]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -149,7 +156,9 @@ export function ChatInterface() {
             const AudioContextClass = (window.AudioContext || (window as any).webkitAudioContext);
             const tempCtx = new AudioContextClass();
             if (tempCtx.state === 'suspended') {
-                tempCtx.resume();
+                tempCtx.resume().then(() => tempCtx.close());
+            } else {
+                tempCtx.close();
             }
         }
 
@@ -158,10 +167,12 @@ export function ChatInterface() {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 setAudioStream(stream);
                 setIsListening(true);
+                setStatus('Listening...');
                 recognitionRef.current.start();
             } catch (err) {
                 console.error("Microphone access denied", err);
                 alert("Please allow microphone access to use voice chat.");
+                setStatus('Mic Error');
             }
         } else {
             alert("Speech recognition is not supported in this browser.");
@@ -181,9 +192,10 @@ export function ChatInterface() {
         setMessages(prev => [...prev, newMessage]);
         setIsTyping(true);
         setCurrentExpression('thinking');
+        setStatus('Thinking...');
 
         try {
-            const response = await AIService.sendMessage(text, messages);
+            const response = await AIService.sendMessage(text, messagesRef.current);
             const aiResponse: Message = {
                 id: (Date.now() + 1).toString(),
                 sender: 'ai',
@@ -197,10 +209,13 @@ export function ChatInterface() {
             if (response.mood) setCurrentExpression(response.mood as Expression);
             else setCurrentExpression('idle');
 
+            setStatus('Speaking...');
             // Voice response
-            speakResponse(response.text);
+            await speakResponse(response.text);
+            setStatus('');
         } catch (error) {
             console.error("AI Error", error);
+            setStatus('Error! Try again.');
         } finally {
             setIsTyping(false);
         }
@@ -478,9 +493,11 @@ export function ChatInterface() {
                     isSpeaking={isSpeaking}
                     isTyping={isTyping}
                     currentExpression={currentExpression}
+                    status={status}
                     volume={volume}
                     onHangUpAction={() => {
                         setIsCallActive(false);
+                        setStatus('');
                         if (audioStream) {
                             audioStream.getTracks().forEach(track => track.stop());
                             setAudioStream(null);
