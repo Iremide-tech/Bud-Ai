@@ -46,7 +46,7 @@ export function ChatInterface() {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messagesRef = useRef<Message[]>(messages);
 
-    // Sync messagesRef
+    // Sync messagesRef to avoid stale closures
     useEffect(() => {
         messagesRef.current = messages;
     }, [messages]);
@@ -71,62 +71,27 @@ export function ChatInterface() {
                 console.error("Failed to load saved personality", e);
             }
         }
-
-        // Initialize Speech Recognition
-        if (typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
-            const SpeechRecognition = window.webkitSpeechRecognition;
-            recognitionRef.current = new SpeechRecognition();
-            recognitionRef.current.continuous = false;
-            recognitionRef.current.interimResults = false;
-            recognitionRef.current.lang = 'en-US';
-
-            recognitionRef.current.onresult = (event: any) => {
-                const transcript = event.results[0][0].transcript;
-                setInputText(transcript);
-                setIsListening(false);
-                // We'll call a special handleVoiceSend to immediately process
-                handleVoiceSend(transcript);
-            };
-
-            recognitionRef.current.onerror = (event: any) => {
-                console.error('Speech recognition error', event.error);
-                setIsListening(false);
-            };
-
-            recognitionRef.current.onend = () => {
-                setIsListening(false);
-                setAudioStream(null);
-            };
-        }
     }, []);
 
     const speakResponse = async (text: string) => {
         setIsSpeaking(true);
         try {
-            // Try ElevenLabs first
             const { audioContent, error } = await elevenLabsTTS(text);
-
             if (audioContent && !error) {
                 const audio = new Audio(`data:audio/mpeg;base64,${audioContent}`);
-
-                // On mobile, we might need to play on a user gesture first, 
-                // but usually, if this is called from an async event that started with a click, it's fine.
                 audio.onended = () => setIsSpeaking(false);
                 audio.onerror = () => {
                     console.error("Audio playback error, falling back to system TTS");
                     fallbackSpeak(text);
                 };
-
                 const playPromise = audio.play();
                 if (playPromise !== undefined) {
                     playPromise.catch(err => {
-                        console.error("Playback failed, likely due to user gesture requirement:", err);
+                        console.error("Playback failed:", err);
                         fallbackSpeak(text);
                     });
                 }
-                return;
             } else {
-                if (error) console.warn("ElevenLabs Error:", error);
                 fallbackSpeak(text);
             }
         } catch (err) {
@@ -151,7 +116,12 @@ export function ChatInterface() {
     };
 
     const startListening = async () => {
-        // Unlock audio on mobile
+        // 1. Cleanup old streams and contexts
+        if (audioStream) {
+            audioStream.getTracks().forEach(track => track.stop());
+            setAudioStream(null);
+        }
+
         if (typeof window !== 'undefined') {
             const AudioContextClass = (window.AudioContext || (window as any).webkitAudioContext);
             const tempCtx = new AudioContextClass();
@@ -162,16 +132,71 @@ export function ChatInterface() {
             }
         }
 
-        if (recognitionRef.current) {
+        // 2. Start Speech Recognition
+        if (typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                setAudioStream(stream);
-                setIsListening(true);
-                setStatus('Listening...');
-                recognitionRef.current.start();
+                const SpeechRecognition = window.webkitSpeechRecognition;
+                const recognition = new SpeechRecognition();
+                recognitionRef.current = recognition;
+
+                recognition.continuous = false;
+                recognition.interimResults = false;
+                recognition.lang = 'en-US';
+
+                let listenTimeout: NodeJS.Timeout;
+
+                recognition.onstart = async () => {
+                    setIsListening(true);
+                    setStatus('Listening...');
+                    // Start visualizer stream AFTER speech engine started to avoid conflict
+                    try {
+                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        setAudioStream(stream);
+                    } catch (e) {
+                        console.warn("Visualizer mic access deferred", e);
+                    }
+
+                    listenTimeout = setTimeout(() => {
+                        if (isListening) {
+                            recognition.abort();
+                            setStatus('No speech detected');
+                            setIsListening(false);
+                        }
+                    }, 10000);
+                };
+
+                recognition.onresult = (event: any) => {
+                    clearTimeout(listenTimeout);
+                    const transcript = event.results[0][0].transcript;
+                    setInputText(transcript);
+                    setIsListening(false);
+                    handleVoiceSend(transcript);
+                };
+
+                recognition.onerror = (event: any) => {
+                    clearTimeout(listenTimeout);
+                    console.error('Speech recognition error', event.error);
+                    setIsListening(false);
+                    const errorMap: Record<string, string> = {
+                        'no-speech': 'No speech detected',
+                        'audio-capture': 'Mic not found',
+                        'not-allowed': 'Mic access denied',
+                        'network': 'Network error',
+                        'aborted': 'Recording stopped'
+                    };
+                    setStatus(errorMap[event.error] || 'Mic Error');
+                };
+
+                recognition.onend = () => {
+                    clearTimeout(listenTimeout);
+                    setIsListening(false);
+                    setAudioStream(null);
+                    setStatus(prev => prev.includes('Error') || prev.includes('detected') ? prev : '');
+                };
+
+                recognition.start();
             } catch (err) {
-                console.error("Microphone access denied", err);
-                alert("Please allow microphone access to use voice chat.");
+                console.error("Speech error", err);
                 setStatus('Mic Error');
             }
         } else {
@@ -205,13 +230,11 @@ export function ChatInterface() {
             };
             setMessages(prev => [...prev, aiResponse]);
 
-            // Mood parsing
             if (response.mood) setCurrentExpression(response.mood as Expression);
             else setCurrentExpression('idle');
 
             setStatus('Speaking...');
-            // Voice response
-            await speakResponse(response.text);
+            await speakResponse(aiResponse.text);
             setStatus('');
         } catch (error) {
             console.error("AI Error", error);
@@ -243,7 +266,6 @@ export function ChatInterface() {
 
         try {
             const response = await AIService.sendMessage(userText, messages, currentImage || undefined);
-
             const aiResponse: Message = {
                 id: (Date.now() + 1).toString(),
                 sender: 'ai',
@@ -251,14 +273,9 @@ export function ChatInterface() {
                 image: response.image,
                 timestamp: new Date()
             };
-
             setMessages(prev => [...prev, aiResponse]);
-
-            // Mood parsing
             if (response.mood) setCurrentExpression(response.mood as Expression);
             else setCurrentExpression('idle');
-
-            // Conditional Voice: handleSend (text) does NOT call speakResponse
         } catch (error) {
             console.error("AI Error", error);
         } finally {
