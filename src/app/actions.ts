@@ -261,3 +261,37 @@ export async function elevenLabsTTS(text: string): Promise<{ audioContent?: stri
         return { error: error.message };
     }
 }
+export async function transcribeAudio(base64Audio: string): Promise<{ text?: string, error?: string }> {
+    const hasOpenAI = !!process.env.OPENAI_API_KEY;
+    if (!hasOpenAI) {
+        return { error: "Missing OpenAI API Key" };
+    }
+
+    try {
+        // Convert base64 to buffer
+        const buffer = Buffer.from(base64Audio, 'base64');
+
+        // We'll use a temporary file path since openai.audio.transcriptions.create 
+        // usually expects a File object or readable stream with a filename/extension
+        const tempFilePath = `temp_${Date.now()}.webm`;
+        const fs = require('fs');
+        const path = require('path');
+        const os = require('os');
+        const fullPath = path.join(os.tmpdir(), tempFilePath);
+
+        fs.writeFileSync(fullPath, buffer);
+
+        const transcription = await openai.audio.transcriptions.create({
+            file: fs.createReadStream(fullPath),
+            model: "whisper-1",
+        });
+
+        // Clean up
+        fs.unlinkSync(fullPath);
+
+        return { text: transcription.text };
+    } catch (error: any) {
+        console.error("Whisper Error:", error);
+        return { error: error.message || "Transcription failed" };
+    }
+}

@@ -16,6 +16,8 @@ interface CallInterfaceProps {
     volume: number;
     onHangUpAction: () => void;
     onStartListeningAction: () => void;
+    onStopListeningAction: () => void;
+    isFallback?: boolean;
 }
 
 export function CallInterface({
@@ -27,7 +29,9 @@ export function CallInterface({
     status,
     volume,
     onHangUpAction,
-    onStartListeningAction
+    onStartListeningAction,
+    onStopListeningAction,
+    isFallback
 }: CallInterfaceProps) {
     return (
         <div className="fixed inset-0 z-50 bg-slate-900 flex flex-col items-center justify-between p-4 md:p-8 text-white overflow-hidden">
@@ -89,8 +93,8 @@ export function CallInterface({
             <div className="z-10 flex flex-col items-center gap-8 w-full max-w-md">
                 <div className="flex items-center gap-6">
                     <button
-                        onClick={onStartListeningAction}
-                        disabled={isListening || isTyping}
+                        onClick={isListening && isFallback ? onStopListeningAction : onStartListeningAction}
+                        disabled={(isListening && !isFallback) || isTyping}
                         className={clsx(
                             "w-16 h-16 rounded-full flex items-center justify-center transition-all active:scale-90 shadow-xl",
                             isListening

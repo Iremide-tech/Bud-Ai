@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Mic, Smile, Image as ImageIcon, Loader2, Sparkles, BookOpen, Coffee, BrainCircuit, Wand2, X, Phone, PhoneOff } from 'lucide-react';
 import clsx from 'clsx';
 import { AIService, Message, Personality, PRESETS } from '@/lib/ai-service';
-import { generateQuiz, generateStorySegment, generatePersonalityIdea, elevenLabsTTS } from '@/app/actions';
+import { generateQuiz, generateStorySegment, generatePersonalityIdea, elevenLabsTTS, transcribeAudio } from '@/app/actions';
 import { QuizCard } from '@/components/gamification/QuizCard';
 import { StoryBuilder } from '@/components/gamification/StoryBuilder';
 import { CustomizePersonalityModal } from './CustomizePersonalityModal';
@@ -15,6 +15,7 @@ import { useAudioAnalyzer } from '@/hooks/useAudioAnalyzer';
 declare global {
     interface Window {
         webkitSpeechRecognition: any;
+        SpeechRecognition: any;
     }
 }
 
@@ -42,6 +43,8 @@ export function ChatInterface() {
     const volume = useAudioAnalyzer(audioStream);
 
     const recognitionRef = useRef<any>(null);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioChunksRef = useRef<Blob[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messagesRef = useRef<Message[]>(messages);
@@ -124,18 +127,21 @@ export function ChatInterface() {
 
         if (typeof window !== 'undefined') {
             const AudioContextClass = (window.AudioContext || (window as any).webkitAudioContext);
-            const tempCtx = new AudioContextClass();
-            if (tempCtx.state === 'suspended') {
-                tempCtx.resume().then(() => tempCtx.close());
-            } else {
-                tempCtx.close();
+            if (AudioContextClass) {
+                const tempCtx = new AudioContextClass();
+                if (tempCtx.state === 'suspended') {
+                    tempCtx.resume().then(() => tempCtx.close());
+                } else {
+                    tempCtx.close();
+                }
             }
         }
 
-        // 2. Start Speech Recognition
-        if (typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
+        const SpeechRecognition = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+
+        // 2. Start Speech Recognition (Native)
+        if (SpeechRecognition) {
             try {
-                const SpeechRecognition = window.webkitSpeechRecognition;
                 const recognition = new SpeechRecognition();
                 recognitionRef.current = recognition;
 
@@ -148,7 +154,6 @@ export function ChatInterface() {
                 recognition.onstart = async () => {
                     setIsListening(true);
                     setStatus('Listening...');
-                    // Start visualizer stream AFTER speech engine started to avoid conflict
                     try {
                         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                         setAudioStream(stream);
@@ -197,10 +202,82 @@ export function ChatInterface() {
                 recognition.start();
             } catch (err) {
                 console.error("Speech error", err);
-                setStatus('Mic Error');
+                startFallbackRecording();
             }
         } else {
-            alert("Speech recognition is not supported in this browser.");
+            // 3. Fallback to Whisper
+            startFallbackRecording();
+        }
+    };
+
+    const startFallbackRecording = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            setAudioStream(stream);
+
+            const mediaRecorder = new MediaRecorder(stream);
+            mediaRecorderRef.current = mediaRecorder;
+            audioChunksRef.current = [];
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    audioChunksRef.current.push(event.data);
+                }
+            };
+
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                if (audioBlob.size < 1000) {
+                    setStatus('No speech detected');
+                    setIsListening(false);
+                    return;
+                }
+
+                setStatus('Transcribing...');
+                setIsListening(false);
+
+                // Convert blob to base64
+                const reader = new FileReader();
+                reader.readAsDataURL(audioBlob);
+                reader.onloadend = async () => {
+                    const base64Audio = (reader.result as string).split(',')[1];
+                    const { text, error } = await transcribeAudio(base64Audio);
+
+                    if (error) {
+                        setStatus('Transcription Error');
+                        console.error(error);
+                    } else if (text) {
+                        setInputText(text);
+                        handleVoiceSend(text);
+                        setStatus('');
+                    } else {
+                        setStatus('No speech detected');
+                    }
+                };
+            };
+
+            setIsListening(true);
+            setStatus('Recording...');
+            mediaRecorder.start();
+
+            // Auto-stop after 8 seconds (children might not know when to stop)
+            setTimeout(() => {
+                if (mediaRecorder.state === 'recording') {
+                    stopFallbackRecording();
+                }
+            }, 8000);
+
+        } catch (err) {
+            console.error("Fallback Mic Error", err);
+            setStatus('Mic Access Denied');
+        }
+    };
+
+    const stopFallbackRecording = () => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            mediaRecorderRef.current.stop();
+            audioStream?.getTracks().forEach(track => track.stop());
+            setAudioStream(null);
         }
     };
 
@@ -481,8 +558,8 @@ export function ChatInterface() {
                         </button>
                     ) : (
                         <button
-                            onClick={startListening}
-                            disabled={isListening || isTyping}
+                            onClick={isListening && mediaRecorderRef.current ? stopFallbackRecording : startListening}
+                            disabled={(isListening && !mediaRecorderRef.current) || isTyping}
                             className={clsx(
                                 "p-3 rounded-full transition-all",
                                 isListening ? "bg-red-500 text-white animate-pulse" : "text-slate-400 hover:text-brand-primary hover:bg-slate-50"
@@ -512,6 +589,8 @@ export function ChatInterface() {
                     currentExpression={currentExpression}
                     status={status}
                     volume={volume}
+                    onStopListeningAction={stopFallbackRecording}
+                    isFallback={!!mediaRecorderRef.current}
                     onHangUpAction={() => {
                         setIsCallActive(false);
                         setStatus('');
