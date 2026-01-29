@@ -261,7 +261,7 @@ export async function elevenLabsTTS(text: string): Promise<{ audioContent?: stri
         return { error: error.message };
     }
 }
-export async function transcribeAudio(base64Audio: string): Promise<{ text?: string, error?: string }> {
+export async function transcribeAudio(base64Audio: string, extension: string = 'webm'): Promise<{ text?: string, error?: string }> {
     const hasOpenAI = !!process.env.OPENAI_API_KEY;
     if (!hasOpenAI) {
         return { error: "Missing OpenAI API Key" };
@@ -273,7 +273,7 @@ export async function transcribeAudio(base64Audio: string): Promise<{ text?: str
 
         // We'll use a temporary file path since openai.audio.transcriptions.create 
         // usually expects a File object or readable stream with a filename/extension
-        const tempFilePath = `temp_${Date.now()}.webm`;
+        const tempFilePath = `temp_${Date.now()}.${extension}`;
         const fs = require('fs');
         const path = require('path');
         const os = require('os');

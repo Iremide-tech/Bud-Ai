@@ -151,6 +151,12 @@ export function ChatInterface() {
 
                 let listenTimeout: NodeJS.Timeout;
 
+                const cleanup = () => {
+                    clearTimeout(listenTimeout);
+                    setIsListening(false);
+                    setAudioStream(null);
+                };
+
                 recognition.onstart = async () => {
                     setIsListening(true);
                     setStatus('Listening...');
@@ -165,7 +171,7 @@ export function ChatInterface() {
                         if (isListening) {
                             recognition.abort();
                             setStatus('No speech detected');
-                            setIsListening(false);
+                            cleanup();
                         }
                     }, 10000);
                 };
@@ -181,22 +187,26 @@ export function ChatInterface() {
                 recognition.onerror = (event: any) => {
                     clearTimeout(listenTimeout);
                     console.error('Speech recognition error', event.error);
-                    setIsListening(false);
-                    const errorMap: Record<string, string> = {
-                        'no-speech': 'No speech detected',
-                        'audio-capture': 'Mic not found',
-                        'not-allowed': 'Mic access denied',
-                        'network': 'Network error',
-                        'aborted': 'Recording stopped'
-                    };
-                    setStatus(errorMap[event.error] || 'Mic Error');
+
+                    // If native fails, try fallback unless it's a permission issue
+                    if (event.error === 'not-allowed') {
+                        setIsListening(false);
+                        setStatus('Mic access denied');
+                    } else if (event.error === 'no-speech') {
+                        setIsListening(false);
+                        setStatus('No speech detected');
+                    } else {
+                        console.log("Native failed, attempting Whisper fallback...");
+                        startFallbackRecording();
+                    }
                 };
 
                 recognition.onend = () => {
                     clearTimeout(listenTimeout);
                     setIsListening(false);
                     setAudioStream(null);
-                    setStatus(prev => prev.includes('Error') || prev.includes('detected') ? prev : '');
+                    // Don't clear status if it contains an error or "Speaking"
+                    setStatus(prev => (prev.includes('Error') || prev.includes('detected') || prev.includes('Speaking')) ? prev : '');
                 };
 
                 recognition.start();
@@ -215,7 +225,19 @@ export function ChatInterface() {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             setAudioStream(stream);
 
-            const mediaRecorder = new MediaRecorder(stream);
+            // Detection of best supported MIME type
+            const types = [
+                'audio/webm;codecs=opus',
+                'audio/webm',
+                'audio/ogg;codecs=opus',
+                'audio/mp4',
+                'audio/mpeg'
+            ];
+            const supportedType = types.find(type => MediaRecorder.isTypeSupported(type)) || '';
+
+            console.log("Selected fallback MIME type:", supportedType);
+
+            const mediaRecorder = new MediaRecorder(stream, { mimeType: supportedType });
             mediaRecorderRef.current = mediaRecorder;
             audioChunksRef.current = [];
 
@@ -226,8 +248,8 @@ export function ChatInterface() {
             };
 
             mediaRecorder.onstop = async () => {
-                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-                if (audioBlob.size < 1000) {
+                const audioBlob = new Blob(audioChunksRef.current, { type: supportedType });
+                if (audioBlob.size < 500) { // Lowered threshold slightly
                     setStatus('No speech detected');
                     setIsListening(false);
                     return;
@@ -236,40 +258,47 @@ export function ChatInterface() {
                 setStatus('Transcribing...');
                 setIsListening(false);
 
-                // Convert blob to base64
-                const reader = new FileReader();
-                reader.readAsDataURL(audioBlob);
-                reader.onloadend = async () => {
-                    const base64Audio = (reader.result as string).split(',')[1];
-                    const { text, error } = await transcribeAudio(base64Audio);
+                try {
+                    // Convert blob to base64
+                    const reader = new FileReader();
+                    reader.readAsDataURL(audioBlob);
+                    reader.onloadend = async () => {
+                        const base64Audio = (reader.result as string).split(',')[1];
+                        const extension = supportedType.split('/')[1]?.split(';')[0] || 'webm';
+                        const { text, error } = await transcribeAudio(base64Audio, extension);
 
-                    if (error) {
-                        setStatus('Transcription Error');
-                        console.error(error);
-                    } else if (text) {
-                        setInputText(text);
-                        handleVoiceSend(text);
-                        setStatus('');
-                    } else {
-                        setStatus('No speech detected');
-                    }
-                };
+                        if (error) {
+                            setStatus('Transcription Error');
+                            console.error("Whisper Fallback Error:", error);
+                        } else if (text && text.trim().length > 0) {
+                            setInputText(text);
+                            handleVoiceSend(text);
+                            setStatus('');
+                        } else {
+                            setStatus('No speech detected');
+                        }
+                    };
+                } catch (err) {
+                    console.error("Transcription process error", err);
+                    setStatus('Transcription Error');
+                }
             };
 
             setIsListening(true);
             setStatus('Recording...');
             mediaRecorder.start();
 
-            // Auto-stop after 8 seconds (children might not know when to stop)
+            // Auto-stop after 10 seconds
             setTimeout(() => {
                 if (mediaRecorder.state === 'recording') {
                     stopFallbackRecording();
                 }
-            }, 8000);
+            }, 10000);
 
         } catch (err) {
             console.error("Fallback Mic Error", err);
             setStatus('Mic Access Denied');
+            setIsListening(false);
         }
     };
 
