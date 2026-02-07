@@ -1,4 +1,5 @@
 import { generateAIResponse } from "@/app/actions";
+import { UserProfile } from "./user-context";
 
 export type Message = {
     id: string;
@@ -8,7 +9,7 @@ export type Message = {
     timestamp: Date;
 };
 
-export type PersonalityType = 'buddy' | 'tutor' | 'sage' | 'custom';
+export type PersonalityType = 'buddy' | 'tutor' | 'sage' | 'custom' | 'health';
 
 export type Personality = {
     id: PersonalityType;
@@ -21,7 +22,8 @@ export type Personality = {
 export const PRESETS: Record<string, Personality> = {
     buddy: { id: 'buddy', name: 'Buddy', description: 'Fun & Playful' },
     tutor: { id: 'tutor', name: 'Tutor', description: 'Helpful & Smart' },
-    sage: { id: 'sage', name: 'Sage', description: 'Calm & Wise' }
+    sage: { id: 'sage', name: 'Sage', description: 'Calm & Wise' },
+    health: { id: 'health', name: 'Health Buddy', description: 'Kind & Caring Nurse' }
 };
 
 let currentPersonality: Personality = PRESETS.buddy;
@@ -35,7 +37,7 @@ export const AIService = {
         return currentPersonality;
     },
 
-    async sendMessage(text: string, history: Message[], image?: string): Promise<{ text: string, image?: string, mood?: string }> {
-        return await generateAIResponse(text, history, currentPersonality, image);
+    async sendMessage(text: string, history: Message[], profile?: UserProfile | null, image?: string): Promise<{ text: string, image?: string, mood?: string }> {
+        return await generateAIResponse(text, history, currentPersonality, profile, image);
     }
 };

@@ -19,6 +19,9 @@ export const metadata: Metadata = {
   description: "A fun and safe AI companion for kids",
 };
 
+import { AuthProvider } from "@/components/providers/AuthProvider";
+import { UserProvider } from "@/lib/user-context";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -29,9 +32,13 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <AppLayout>
-          {children}
-        </AppLayout>
+        <AuthProvider>
+          <UserProvider>
+            <AppLayout>
+              {children}
+            </AppLayout>
+          </UserProvider>
+        </AuthProvider>
         <Analytics />
       </body>
     </html>

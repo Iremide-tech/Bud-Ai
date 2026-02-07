@@ -1,0 +1,18 @@
+[
+  {
+    "username": "Iremide",
+    "password": "$2b$10$TShx5k/ZedGoM6PUZnxBIeYzxDoTHcw2VA39LoCG.WZPKA9AVxRk2",
+    "age": 19,
+    "gender": "Boy",
+    "occupation": "Programmer",
+    "id": "1770449601468"
+  },
+  {
+    "username": "Mercy",
+    "password": "$2b$10$orypUydDSq7fQpyWATcR7eygdeo8VE6WGUgQ/RhxG5avTKcjIfXS.",
+    "age": 19,
+    "gender": "Girl",
+    "occupation": "Student",
+    "id": "1770450237603"
+  }
+]

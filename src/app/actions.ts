@@ -2,6 +2,11 @@
 
 import OpenAI from "openai";
 import { Message, Personality } from "@/lib/ai-service";
+import { UserProfile } from "@/lib/user-context";
+import { getHealthAdvice } from "@/lib/medical-knowledge";
+import { searchClinicalKnowledge } from "@/lib/orion-health";
+
+import { searchRecipes, getRecipesByIngredients } from "@/lib/spoonacular";
 
 const openai = new OpenAI({
     apiKey: (process.env.OPENAI_API_KEY || "").trim(),
@@ -11,6 +16,7 @@ export async function generateAIResponse(
     currentMessage: string,
     history: Message[],
     personality: Personality,
+    profile?: UserProfile | null,
     image?: string
 ): Promise<{ text: string, image?: string, mood?: string }> {
     const hasOpenAI = !!process.env.OPENAI_API_KEY;
@@ -19,29 +25,66 @@ export async function generateAIResponse(
         return { text: "I'm missing my OpenAI API Key! 🔑 Please ask my creator to add `OPENAI_API_KEY` to the .env.local file." };
     }
 
+    // Demographic check for Kitchen Assistant
+    const isKitchenAssistEligible = profile && profile.gender.toLowerCase().includes("girl") || profile?.gender.toLowerCase().includes("female") && profile.age >= 18;
+
     // Common system prompt construction
     let basePrompt = "";
+    // ... (rest of personality logic)
     switch (personality.id) {
         case 'buddy':
-            basePrompt = "You are 'AI-Bud', a fun, energetic, and playful best friend for a child. Use emojis, keep sentences simple, and be encouraging. Avoid long paragraphs.";
+            basePrompt = "You are 'AI-Bud', a fun, energetic, and playful best friend.";
             break;
         case 'tutor':
-            basePrompt = "You are 'AI-Bud', a patient and helpful tutor. Explain things simply, use analogies, and ask guiding questions to help them learn. Use book emojis.";
+            basePrompt = "You are 'AI-Bud', a patient and helpful tutor. Explain things simply and ask guiding questions.";
             break;
         case 'sage':
-            basePrompt = "You are 'AI-Bud', a calm and wise companion. Help the child process emotions, breathe, and find peace. Use nature metaphors and be soothing.";
+            basePrompt = "You are 'AI-Bud', a calm and wise companion. Help process emotions and find peace.";
             break;
         case 'custom':
-            basePrompt = `You are playing a character named '${personality.name}'. Rules: ${personality.systemPrompt || "Be friendly."}. Remember you are talking to a child, so keep it safe and appropriate.`;
+            basePrompt = `You are playing a character named '${personality.name}'. Rules: ${personality.systemPrompt || "Be friendly."}.`;
+            break;
+        case 'health':
+            basePrompt = "You are 'AI-Bud', a kind and caring Health Buddy. You give simple medical advice and first aid tips.";
             break;
         default:
             basePrompt = "You are a friendly AI companion.";
     }
 
+    // Personalization based on User Profile
+    let personalizationCtx = "";
+    if (profile) {
+        personalizationCtx = `You are talking to ${profile.username}, who is ${profile.age} years old and identifies as a ${profile.gender}. Their occupation/hobby is ${profile.occupation}. 
+        
+        ADJUST YOUR TONE:
+        - Since they are ${profile.age} years old, use vocabulary and concepts appropriate for that age. 
+        - If they are a child (under 13), be extremely simple, use lots of emojis, and be very encouraging.
+        - If they are an adult, be more sophisticated but maintain your friendly Bud personality.
+        - Incorporate their interest in ${profile.occupation} into your analogies or small talk when relevant.
+
+        ### UNIVERSAL ASSISTANT DIRECTIVE ###
+        You are also a world-class assistant for their specific field: "${profile.occupation}". 
+        - If they are a professional (e.g. Programmer, Doctor, Marketer), offer specific technical advice, best practices, and innovative ideas related to ${profile.occupation}.
+        - If they are a student, offer study tips, explanations of complex concepts, and motivation.
+        - If they have a hobby (e.g. Gardening, Painting), offer expert tips and creative projects.
+        - ALWAYS try to be proactive—if they mention a problem, suggest a solution that an expert ${profile.occupation} would know!`;
+
+        if (isKitchenAssistEligible) {
+            personalizationCtx += `\n\nKITCHEN ASSISTANT MODE:
+            Since they are an adult female, you have additional "Kitchen Assistant" capabilities. If they ask for recipes, cooking tips, or what to make with certain ingredients, you can provide real recipes. 
+            IMPORTANT: If they provide ingredients, list them clearly. If they ask for a specific dish, find a good recipe for it.`;
+        }
+    } else {
+        personalizationCtx = "You are talking to a child. Keep it safe and appropriate.";
+    }
+
     const systemPrompt = `${basePrompt} 
-    Keep your responses friendly, upbeat, and kid-safe.
+    ${personalizationCtx}
+    Keep your responses friendly, upbeat, and safe.
     
-    CRITICAL: You have a "Magic Crayon". If the child asks for a drawing or to "see" something, YOU MUST NOT describe it yourself in the regular message. Instead, use your Magic Crayon (the "draw" field or tag) to send the description to the image generator.`;
+    CRITICAL: You have access to a "Medical Knowledge Base". If asked about an injury or feeling sick, YOU MUST NOT make up medical advice. Instead, check the knowledge base first.
+    
+    CRITICAL: You have a "Magic Crayon". If asked for a drawing, DO NOT describe it yourself in the regular message. Instead, use your Magic Crayon (the "draw" field) to send the description to the image generator.`;
 
     try {
         const messages: any[] = [
@@ -50,13 +93,13 @@ export async function generateAIResponse(
                 content: `${systemPrompt}
                 
                 ### MANDATORY RESPONSE FORMAT ###
-                You are a backend service that MUST respond in valid JSON.
+                You MUST respond in valid JSON.
                 The JSON must have these keys:
-                1. "text": (string) Your friendly, kid-safe response message. NEVER describe the drawing here.
+                1. "text": (string) Your friendly response message.
                 2. "mood": (string) ONE OF: happy, sad, surprised, thinking, idle.
-                3. "draw": (string | null) A vivid, detailed description for the image generator.
+                3. "draw": (string | null) A vivid description for the image generator.
                 
-                Example: { "text": "I'd love to draw that for you! 🎨", "mood": "happy", "draw": "a giant sparkly moon in a purple sky with stars" }`
+                Example: { "text": "Hi ${profile?.username || 'friend'}! I'd love to draw that! 🎨", "mood": "happy", "draw": "a puppy playing with a ball" }`
             },
             ...history.slice(-5).map(msg => ({
                 role: msg.sender === 'user' ? 'user' : 'assistant',
@@ -82,6 +125,33 @@ export async function generateAIResponse(
         });
 
         const content = JSON.parse(response.choices[0].message.content || "{}");
+
+        // Kitchen Assistant Logic: Fetch real recipe if eligible and relevant
+        let recipeData = "";
+        if (isKitchenAssistEligible && (currentMessage.toLowerCase().includes("recipe") || currentMessage.toLowerCase().includes("cook") || currentMessage.toLowerCase().includes("ingredients"))) {
+            const recipe = await searchRecipes(currentMessage);
+            if (recipe) {
+                recipeData = `\n\n🍳 **Bud's Kitchen Suggestion: ${recipe.title}**\n\n*Ingredients:* ${recipe.extendedIngredients?.map((i: any) => i.original).join(', ')}\n\n*Instructions:* ${recipe.instructions || "Check out the recipe online for full details!"}\n\n*Ready in ${recipe.readyInMinutes} minutes!* ✨`;
+            }
+        }
+
+        // Check if we should provide medical advice
+        let medicalTips = "";
+        const advice = getHealthAdvice(currentMessage);
+
+        // Try searching Orion Health Knowledge Base too!
+        const orionFact = await searchClinicalKnowledge(currentMessage);
+
+        if (advice) {
+            medicalTips = `\n\n**${advice.title}**\n${advice.advice}\n${advice.steps?.map(s => `• ${s}`).join('\n')}\n\n*${advice.adultReminder}* 💖`;
+
+            if (orionFact) {
+                medicalTips += `\n\n> **Did you know? (Source: ${orionFact.source})**\n> ${orionFact.summary}`;
+            }
+        } else if (orionFact) {
+            medicalTips = `\n\n**${orionFact.title}**\n${orionFact.summary}\n\n*Source: ${orionFact.source}*`;
+        }
+
         const rawDraw = content.draw || content.drawing || null;
 
         let imageUrl: string | undefined = undefined;
@@ -95,7 +165,7 @@ export async function generateAIResponse(
         console.log("OpenAI Debug:", { rawDraw, imageUrl });
 
         return {
-            text: content.text || "",
+            text: (content.text || "") + medicalTips + recipeData,
             mood: content.mood?.toLowerCase() || "idle",
             image: imageUrl
         };

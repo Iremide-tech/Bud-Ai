@@ -11,6 +11,7 @@ import { CustomizePersonalityModal } from './CustomizePersonalityModal';
 import { Avatar, Expression } from './Avatar';
 import { CallInterface } from './CallInterface';
 import { useAudioAnalyzer } from '@/hooks/useAudioAnalyzer';
+import { useUser } from '@/lib/user-context';
 
 declare global {
     interface Window {
@@ -20,11 +21,12 @@ declare global {
 }
 
 export function ChatInterface() {
+    const { userProfile } = useUser();
     const [messages, setMessages] = useState<Message[]>([
         {
             id: '1',
             sender: 'ai',
-            text: "Hi there! I'm Bud-AI. I'm so happy to see you! 🌟 What shall we play or talk about today?",
+            text: `Hi ${userProfile?.username || 'there'}! I'm Bud-AI. I'm so happy to see you! 🌟 What shall we play or talk about today?`,
             timestamp: new Date()
         }
     ]);
@@ -326,7 +328,7 @@ export function ChatInterface() {
         setStatus('Thinking...');
 
         try {
-            const response = await AIService.sendMessage(text, messagesRef.current);
+            const response = await AIService.sendMessage(text, messagesRef.current, userProfile);
             const aiResponse: Message = {
                 id: (Date.now() + 1).toString(),
                 sender: 'ai',
@@ -371,7 +373,7 @@ export function ChatInterface() {
         setCurrentExpression('thinking');
 
         try {
-            const response = await AIService.sendMessage(userText, messages, currentImage || undefined);
+            const response = await AIService.sendMessage(userText, messages, userProfile, currentImage || undefined);
             const aiResponse: Message = {
                 id: (Date.now() + 1).toString(),
                 sender: 'ai',
