@@ -62,11 +62,56 @@ const KNOWLEDGE_BASE: Record<string, HealthAdvice> = {
             "Wear light clothes so you don't get too hot."
         ],
         adultReminder: "If you feel very hot, tell a grown-up right away so they can help you feel better."
+    },
+    "dehydration": {
+        title: "Feeling Weak or Thirsty",
+        advice: "Your body is like a plant that needs water to stay strong! Feeling weak often means you need to refuel with fluids.",
+        steps: [
+            "Drink water slowly, little by little.",
+            "Try a drink with electrolytes like a sports drink.",
+            "Rest in a cool place."
+        ],
+        adultReminder: "Severe weakness should be checked by a doctor to ensure everything is okay."
+    },
+    "vital_signs": {
+        title: "Checking Your Vitals",
+        advice: "Vitals are like your body's dashboard. A normal heart rate for adults is usually 60-100 bpm.",
+        steps: [
+            "Identify if your heart rate is much higher or lower than usual.",
+            "Track your temperature – anything over 100.4°F (38°C) is a fever.",
+            "Check if you feel dizzy or short of breath."
+        ],
+        adultReminder: "If vitals are abnormal (e.g., HR > 100 at rest), professional follow-up is recommended."
+    },
+    "medications": {
+        title: "Medicine Classes",
+        advice: "Doctors use different types of medicines for different jobs, like antibiotics for bacteria.",
+        steps: [
+            "Antibiotics: Used for bacterial infections.",
+            "Antipyretics: Used to lower fevers.",
+            "Analgesics: Used for pain relief."
+        ],
+        adultReminder: "A healthcare professional determines the exact drug and dose. Never take medicine without consultation."
     }
 };
 
 export function getHealthAdvice(query: string): HealthAdvice | null {
     const lowercaseQuery = query.toLowerCase();
+
+    // Vitals check
+    if (lowercaseQuery.includes("bpm") || lowercaseQuery.includes("heart rate") || lowercaseQuery.includes("bp") || lowercaseQuery.includes("blood pressure")) {
+        return KNOWLEDGE_BASE["vital_signs"];
+    }
+
+    // Medication check
+    if (lowercaseQuery.includes("medication") || lowercaseQuery.includes("drug") || lowercaseQuery.includes("antibiotic")) {
+        return KNOWLEDGE_BASE["medications"];
+    }
+
+    // Symptom check
+    if (lowercaseQuery.includes("weak") || lowercaseQuery.includes("dehydrated") || lowercaseQuery.includes("thirsty")) {
+        return KNOWLEDGE_BASE["dehydration"];
+    }
 
     // Simple keyword matching
     if (lowercaseQuery.includes("scrape") || lowercaseQuery.includes("knee") || lowercaseQuery.includes("cut")) {

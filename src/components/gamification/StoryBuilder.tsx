@@ -58,7 +58,7 @@ export function StoryBuilder({ onClose }: { onClose?: () => void }) {
 
     if (isSetup) {
         return (
-            <div className="max-w-2xl w-full bg-white rounded-3xl shadow-xl overflow-hidden mx-auto my-4 border-2 border-slate-100 flex flex-col min-h-[500px] max-h-[90vh] p-4 sm:p-8 overflow-y-auto no-scrollbar">
+            <div className="w-full max-w-2xl sm:w-full bg-white rounded-3xl shadow-xl overflow-hidden mx-auto my-4 border-2 border-slate-100 flex flex-col min-h-[500px] max-h-[90vh] p-5 sm:p-8 overflow-y-auto no-scrollbar">
                 <div className="flex justify-between items-start mb-8">
                     <div>
                         <h2 className="text-3xl font-bold text-slate-800 mb-2">Create a Story! 📖</h2>
@@ -72,18 +72,18 @@ export function StoryBuilder({ onClose }: { onClose?: () => void }) {
                 <div className="space-y-6">
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-3">Choose a Genre</label>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-2 gap-3">
                             {GENRES.map((g) => (
                                 <button
                                     key={g.id}
                                     onClick={() => setSelectedGenre(g.id)}
                                     className={clsx(
-                                        "p-4 rounded-xl border-2 flex items-center gap-3 transition-all",
+                                        "p-3 sm:p-4 rounded-xl border-2 flex items-center gap-2 sm:gap-3 transition-all active:scale-95",
                                         selectedGenre === g.id ? g.color + " border-current shadow-sm" : "bg-white border-slate-100 text-slate-400 hover:border-slate-200"
                                     )}
                                 >
                                     <g.icon className="w-5 h-5" />
-                                    <span className="font-semibold">{g.label}</span>
+                                    <span className="font-bold text-sm sm:text-base">{g.label}</span>
                                 </button>
                             ))}
                         </div>
@@ -113,7 +113,7 @@ export function StoryBuilder({ onClose }: { onClose?: () => void }) {
     }
 
     return (
-        <div className="max-w-2xl w-full bg-white rounded-3xl shadow-xl overflow-hidden mx-auto my-4 border-2 border-slate-100 flex flex-col min-h-[500px] max-h-[90vh]">
+        <div className="w-full max-w-2xl sm:w-full bg-white rounded-3xl shadow-xl overflow-hidden mx-auto my-4 border-2 border-slate-100 flex flex-col min-h-[500px] max-h-[90vh]">
             {/* Header */}
             <div className="bg-gradient-to-r from-violet-500 to-fuchsia-500 p-4 text-white flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2">

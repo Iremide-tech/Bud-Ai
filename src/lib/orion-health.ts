@@ -25,11 +25,26 @@ export async function searchClinicalKnowledge(query: string): Promise<ClinicalFa
 
     if (!ORION_API_KEY) {
         // Mocking an Orion Clinical Search result
-        if (query.toLowerCase().includes("germ") || query.toLowerCase().includes("wash")) {
+        const q = query.toLowerCase();
+        if (q.includes("germ") || q.includes("wash")) {
             return {
                 title: "Infection Control & Hygiene",
                 summary: "Clinical guidelines emphasize hand hygiene as the primary defense against pathogen transmission in community settings.",
                 source: "Orion Health Clinical Repository"
+            };
+        }
+        if (q.includes("medication") || q.includes("history")) {
+            return {
+                title: "Patient Medication Overview",
+                summary: "Records show a history of seasonal allergy treatments. No current active prescriptions for acute conditions are noted in the integrated record.",
+                source: "Orion Health Clinical Repository"
+            };
+        }
+        if (q.includes("lab") || q.includes("result") || q.includes("vitals")) {
+            return {
+                title: "Recent Clinical Observations",
+                summary: "Last recorded vitals indicate a slightly elevated heart rate. Lab results for basic metabolic panel are within normal limits (Simulated).",
+                source: "Orion Health Observation Logic"
             };
         }
         return null;

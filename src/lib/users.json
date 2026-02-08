@@ -14,5 +14,14 @@
     "gender": "Girl",
     "occupation": "Student",
     "id": "1770450237603"
+  },
+  {
+    "username": "Funmi",
+    "password": "$2b$10$gzE6YSsUzOkyAGx0sVBq2.H1AnSh8dGtuFNMdHjgxSPuzcwtEgQTa",
+    "age": 19,
+    "gender": "Girl",
+    "occupation": "Student",
+    "id": "1770592857081",
+    "budName": "Bud"
   }
 ]

@@ -40,6 +40,7 @@ export const authOptions: NextAuthOptions = {
                         age: user.age,
                         gender: user.gender,
                         occupation: user.occupation,
+                        budName: user.budName || 'Bud',
                     };
                 }
                 return null;
@@ -54,6 +55,7 @@ export const authOptions: NextAuthOptions = {
                 token.age = (user as any).age;
                 token.gender = (user as any).gender;
                 token.occupation = (user as any).occupation;
+                token.budName = (user as any).budName || 'Bud';
             }
             return token;
         },
@@ -64,6 +66,7 @@ export const authOptions: NextAuthOptions = {
                 (session.user as any).age = token.age;
                 (session.user as any).gender = token.gender;
                 (session.user as any).occupation = token.occupation;
+                (session.user as any).budName = token.budName;
             }
             return session;
         }
@@ -88,6 +91,7 @@ export function registerUser(userData: any) {
         ...userData,
         id: Date.now().toString(),
         password: hashedPassword,
+        budName: userData.budName || 'Bud',
     };
     users.push(newUser);
     saveUsers(users);

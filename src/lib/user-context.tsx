@@ -8,6 +8,7 @@ export type UserProfile = {
     age: number;
     gender: string;
     occupation: string;
+    budName: string;
 };
 
 type UserContextType = {
@@ -29,7 +30,8 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 username: u.username || u.name || "Friend",
                 age: u.age || 0,
                 gender: u.gender || "Rather not say",
-                occupation: u.occupation || "Explorer"
+                occupation: u.occupation || "Explorer",
+                budName: u.budName || "Bud"
             });
         } else {
             setUserProfile(null);

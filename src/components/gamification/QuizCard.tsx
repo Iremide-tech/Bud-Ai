@@ -82,7 +82,7 @@ export function QuizCard({ onClose }: { onClose?: () => void }) {
 
     if (isSetup) {
         return (
-            <div className="max-w-md w-full bg-white rounded-3xl shadow-xl overflow-hidden animate-in zoom-in-95 duration-300 mx-auto my-4 border-2 border-slate-100 flex flex-col p-4 sm:p-8 max-h-[90vh] overflow-y-auto no-scrollbar">
+            <div className="w-full max-w-md sm:w-full bg-white rounded-3xl shadow-xl overflow-hidden animate-in zoom-in-95 duration-300 mx-auto my-4 border-2 border-slate-100 flex flex-col p-5 sm:p-8 max-h-[90vh] sm:max-h-[min(800px,90vh)] overflow-y-auto no-scrollbar">
                 <div className="flex justify-between items-start mb-6">
                     <div>
                         <h3 className="text-2xl font-bold text-slate-800">Quiz Corner! 🧠</h3>
@@ -96,7 +96,7 @@ export function QuizCard({ onClose }: { onClose?: () => void }) {
                 <div className="space-y-6">
                     <div>
                         <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Select Subject</label>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-2 gap-2 sm:gap-3">
                             {SUBJECTS.map((s) => {
                                 const Icon = s.icon;
                                 return (
@@ -104,12 +104,12 @@ export function QuizCard({ onClose }: { onClose?: () => void }) {
                                         key={s.id}
                                         onClick={() => setSelectedSubject(s.id)}
                                         className={clsx(
-                                            "p-3 rounded-xl border-2 flex items-center gap-2 transition-all text-sm",
+                                            "p-3 sm:p-4 rounded-xl border-2 flex items-center gap-2 sm:gap-3 transition-all text-sm sm:text-base active:scale-95",
                                             selectedSubject === s.id ? s.color + " border-current shadow-sm" : "bg-white border-slate-100 text-slate-400 hover:border-slate-200"
                                         )}
                                     >
-                                        <Icon className="w-4 h-4" />
-                                        <span className="font-semibold">{s.label}</span>
+                                        <Icon className="w-4 h-4 sm:w-5 h-5" />
+                                        <span className="font-bold">{s.label}</span>
                                     </button>
                                 );
                             })}
@@ -220,7 +220,7 @@ export function QuizCard({ onClose }: { onClose?: () => void }) {
     const currentSubject = SUBJECTS.find(s => s.id === selectedSubject);
 
     return (
-        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl overflow-hidden animate-in zoom-in-95 duration-300 mx-auto my-4 border-2 border-slate-100">
+        <div className="w-full max-w-md sm:w-full bg-white rounded-3xl shadow-xl overflow-hidden animate-in zoom-in-95 duration-300 mx-auto my-4 border-2 border-slate-100 flex flex-col h-full max-h-[90vh]">
             {/* Header */}
             <div className={clsx("p-6 text-white text-center relative", currentSubject ? currentSubject.color.replace('bg-', 'bg-').split(' ')[0] : "bg-brand-primary")}>
                 <div className="absolute inset-0 bg-black/10"></div>

@@ -7,6 +7,7 @@ import { getHealthAdvice } from "@/lib/medical-knowledge";
 import { searchClinicalKnowledge } from "@/lib/orion-health";
 
 import { searchRecipes, getRecipesByIngredients } from "@/lib/spoonacular";
+import { getNutritionAdvice, buildMealPlanIdea } from "@/lib/nutrition";
 
 const openai = new OpenAI({
     apiKey: (process.env.OPENAI_API_KEY || "").trim(),
@@ -138,18 +139,31 @@ export async function generateAIResponse(
         // Check if we should provide medical advice
         let medicalTips = "";
         const advice = getHealthAdvice(currentMessage);
-
-        // Try searching Orion Health Knowledge Base too!
         const orionFact = await searchClinicalKnowledge(currentMessage);
+        const nutritionalAdvice = getNutritionAdvice(currentMessage);
 
-        if (advice) {
-            medicalTips = `\n\n**${advice.title}**\n${advice.advice}\n${advice.steps?.map(s => `• ${s}`).join('\n')}\n\n*${advice.adultReminder}* 💖`;
+        if (advice || orionFact || nutritionalAdvice) {
+            medicalTips = "\n\n---";
 
-            if (orionFact) {
-                medicalTips += `\n\n> **Did you know? (Source: ${orionFact.source})**\n> ${orionFact.summary}`;
+            // 🩺 Health context
+            if (advice || orionFact) {
+                medicalTips += `\n\n**🩺 Health Context**\nBased on your symptoms and health data, this may be related to ${advice?.title.toLowerCase() || 'a clinical observation'}.`;
             }
-        } else if (orionFact) {
-            medicalTips = `\n\n**${orionFact.title}**\n${orionFact.summary}\n\n*Source: ${orionFact.source}*`;
+
+            // 💊 Medical insight (non-prescriptive)
+            if (advice || orionFact) {
+                medicalTips += `\n\n**💊 Medical Insight**\n${advice?.advice || ''} ${orionFact?.summary || ''}\nDoctors often consider these categories: ${advice?.steps?.join(', ') || 'further clinical evaluation'}.`;
+            }
+
+            // 🍎 Food action (prescriptive but safe)
+            if (nutritionalAdvice) {
+                medicalTips += `\n\n**🍎 Food Action**\nToday, you can support your health by eating ${nutritionalAdvice.foods.join(', ')}. ${nutritionalAdvice.benefit}`;
+            } else if (advice?.title === "When You Feel Hot" || advice?.title === "Feeling Weak or Thirsty") {
+                medicalTips += `\n\n**🍎 Food Action**\nToday, you can support your health by eating light foods like rice, bananas, and soup, and staying hydrated.`;
+            }
+
+            // 🚨 Safety check
+            medicalTips += `\n\n**🚨 Safety Check**\nPlease consult a healthcare professional before taking any medication or if symptoms persist. ${advice?.adultReminder || ''}`;
         }
 
         const rawDraw = content.draw || content.drawing || null;

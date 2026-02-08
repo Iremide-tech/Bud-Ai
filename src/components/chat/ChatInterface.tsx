@@ -26,7 +26,7 @@ export function ChatInterface() {
         {
             id: '1',
             sender: 'ai',
-            text: `Hi ${userProfile?.username || 'there'}! I'm Bud-AI. I'm so happy to see you! 🌟 What shall we play or talk about today?`,
+            text: `Hi ${userProfile?.username || 'there'}! I'm ${userProfile?.budName || 'Bud'}-AI. I'm so happy to see you! 🌟 What shall we play or talk about today?`,
             timestamp: new Date()
         }
     ]);
@@ -420,53 +420,55 @@ export function ChatInterface() {
 
     return (
         <div className="flex flex-col h-[calc(100vh-8rem)]">
-            {/* Personality & Game Header */}
-            <div className="flex flex-nowrap md:flex-wrap items-center gap-2 mb-4 p-2 bg-white/50 backdrop-blur-sm rounded-2xl w-full md:w-fit mx-auto shadow-sm overflow-x-auto no-scrollbar pb-3 md:pb-2">
-                <button
-                    onClick={() => changePersonality(PRESETS.buddy)}
-                    className={clsx("p-2 rounded-xl flex items-center gap-2 transition-all", personality.id === 'buddy' ? "bg-brand-primary text-white shadow-md glow" : "hover:bg-white text-slate-500")}
-                >
-                    <Sparkles className="w-4 h-4" /> <span className="text-sm font-medium">Buddy</span>
-                </button>
-                <button
-                    onClick={() => changePersonality(PRESETS.tutor)}
-                    className={clsx("p-2 rounded-xl flex items-center gap-2 transition-all", personality.id === 'tutor' ? "bg-blue-500 text-white shadow-md glow" : "hover:bg-white text-slate-500")}
-                >
-                    <BookOpen className="w-4 h-4" /> <span className="text-sm font-medium">Tutor</span>
-                </button>
-                <button
-                    onClick={() => changePersonality(PRESETS.sage)}
-                    className={clsx("p-2 rounded-xl flex items-center gap-2 transition-all", personality.id === 'sage' ? "bg-emerald-500 text-white shadow-md glow" : "hover:bg-white text-slate-500")}
-                >
-                    <Coffee className="w-4 h-4" /> <span className="text-sm font-medium">Sage</span>
-                </button>
-                <button
-                    onClick={() => setIsCustomizing(true)}
-                    className={clsx("p-2 rounded-xl flex items-center gap-2 transition-all", personality.id === 'custom' ? "bg-fuchsia-600 text-white shadow-md glow" : "hover:bg-white text-slate-500")}
-                >
-                    <Wand2 className="w-4 h-4" /> <span className="text-sm font-medium">{personality.id === 'custom' ? personality.name : 'Custom'}</span>
-                </button>
-                <div className="w-px h-6 bg-slate-300 mx-1 self-center"></div>
+            {/* Personality & Game Header - Improved for mobile horizontal scroll */}
+            <div className="flex-shrink-0 bg-white/50 backdrop-blur-md rounded-2xl p-3 border border-white/50 shadow-sm mb-4 sticky top-0 z-20 overflow-x-auto no-scrollbar pb-3">
+                <div className="flex items-center gap-2 min-w-max px-1">
+                    <button
+                        onClick={() => changePersonality(PRESETS.buddy)}
+                        className={clsx("px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all active:scale-95", personality.id === 'buddy' ? "bg-brand-primary text-white shadow-md glow" : "bg-white/50 text-slate-500 hover:bg-white")}
+                    >
+                        <Sparkles className="w-4 h-4" /> <span className="text-sm font-bold">Buddy</span>
+                    </button>
+                    <button
+                        onClick={() => changePersonality(PRESETS.tutor)}
+                        className={clsx("px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all active:scale-95", personality.id === 'tutor' ? "bg-blue-500 text-white shadow-md glow" : "bg-white/50 text-slate-500 hover:bg-white")}
+                    >
+                        <BookOpen className="w-4 h-4" /> <span className="text-sm font-bold">Tutor</span>
+                    </button>
+                    <button
+                        onClick={() => changePersonality(PRESETS.sage)}
+                        className={clsx("px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all active:scale-95", personality.id === 'sage' ? "bg-emerald-500 text-white shadow-md glow" : "bg-white/50 text-slate-500 hover:bg-white")}
+                    >
+                        <Coffee className="w-4 h-4" /> <span className="text-sm font-bold">Sage</span>
+                    </button>
+                    <button
+                        onClick={() => setIsCustomizing(true)}
+                        className={clsx("px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all active:scale-95", personality.id === 'custom' ? "bg-fuchsia-600 text-white shadow-md glow" : "bg-white/50 text-slate-500 hover:bg-white")}
+                    >
+                        <Wand2 className="w-4 h-4" /> <span className="text-sm font-bold">{personality.id === 'custom' ? personality.name : 'Custom'}</span>
+                    </button>
 
-                <button
-                    onClick={() => setGameMode(gameMode === 'quiz' ? 'none' : 'quiz')}
-                    className={clsx("p-2 rounded-xl flex items-center gap-2 transition-all", gameMode === 'quiz' ? "bg-amber-500 text-white shadow-md" : "hover:bg-white text-slate-500")}
-                >
-                    <BrainCircuit className="w-4 h-4" /> <span className="text-sm font-medium">Quiz</span>
-                </button>
-                <button
-                    onClick={() => setGameMode(gameMode === 'story' ? 'none' : 'story')}
-                    className={clsx("p-2 rounded-xl flex items-center gap-2 transition-all", gameMode === 'story' ? "bg-fuchsia-500 text-white shadow-md" : "hover:bg-white text-slate-500")}
-                >
-                    <BookOpen className="w-4 h-4" /> <span className="text-sm font-medium">Story</span>
-                </button>
-                <div className="w-px h-6 bg-slate-300 mx-1 self-center"></div>
-                <button
-                    onClick={() => setIsCallActive(true)}
-                    className="p-2 rounded-xl flex items-center gap-2 transition-all bg-green-500 text-white shadow-md hover:bg-green-600 glow"
-                >
-                    <Phone className="w-4 h-4" /> <span className="text-sm font-medium">Call</span>
-                </button>
+                    <div className="w-px h-6 bg-slate-300 mx-1"></div>
+
+                    <button
+                        onClick={() => setGameMode(gameMode === 'quiz' ? 'none' : 'quiz')}
+                        className={clsx("p-2.5 rounded-xl flex items-center gap-2 transition-all active:scale-95", gameMode === 'quiz' ? "bg-amber-500 text-white shadow-md" : "bg-white/50 text-slate-500")}
+                    >
+                        <BrainCircuit className="w-5 h-5" />
+                    </button>
+                    <button
+                        onClick={() => setGameMode(gameMode === 'story' ? 'none' : 'story')}
+                        className={clsx("p-2.5 rounded-xl flex items-center gap-2 transition-all active:scale-95", gameMode === 'story' ? "bg-fuchsia-500 text-white shadow-md" : "bg-white/50 text-slate-500")}
+                    >
+                        <BookOpen className="w-5 h-5" />
+                    </button>
+                    <button
+                        onClick={() => setIsCallActive(true)}
+                        className="p-2.5 rounded-xl flex items-center gap-2 transition-all bg-green-500 text-white shadow-md active:scale-95"
+                    >
+                        <Phone className="w-5 h-5" />
+                    </button>
+                </div>
             </div>
 
             {/* Main Content Area */}
@@ -537,68 +539,68 @@ export function ChatInterface() {
 
             {/* Input Area (only show if not in Game mode) */}
             {gameMode === 'none' && (
-                <div className="mt-4 bg-white p-2 rounded-3xl shadow-lg border border-slate-100 flex items-center gap-2">
-                    <button className="p-3 text-slate-400 hover:text-brand-secondary hover:bg-slate-50 rounded-full transition-colors">
-                        <Smile className="w-6 h-6" />
-                    </button>
-                    <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="p-3 text-slate-400 hover:text-brand-secondary hover:bg-slate-50 rounded-full transition-colors"
-                    >
-                        <ImageIcon className="w-6 h-6" />
-                    </button>
-                    <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleImageSelect}
-                        accept="image/*"
-                        className="hidden"
-                    />
-
-                    <div className="flex-1 flex flex-col gap-2">
-                        {selectedImage && (
-                            <div className="relative w-20 h-20 ml-2 mt-2 group">
-                                <img src={selectedImage} alt="Preview" className="w-full h-full object-cover rounded-xl border border-slate-200" />
-                                <button
-                                    onClick={() => setSelectedImage(null)}
-                                    className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full shadow-md hover:bg-red-600 transition-colors"
-                                >
-                                    <X className="w-3 h-3" />
-                                </button>
-                            </div>
-                        )}
+                <div className="mt-4 bg-white/90 backdrop-blur-xl p-2 sm:p-3 rounded-[2rem] sm:rounded-3xl shadow-xl border border-white/50 flex flex-col gap-2 transition-all focus-within:ring-4 focus-within:ring-brand-primary/10">
+                    <div className="flex items-center gap-1 sm:gap-2">
+                        <button
+                            onClick={() => fileInputRef.current?.click()}
+                            className="p-2.5 sm:p-3 text-slate-400 hover:text-brand-primary hover:bg-slate-50 rounded-xl transition-all active:scale-95"
+                        >
+                            <ImageIcon className="w-5 h-5 sm:w-6 sm:h-6" />
+                        </button>
                         <input
-                            type="text"
-                            value={inputText}
-                            onChange={(e) => setInputText(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                            placeholder={`Talk to ${personality.name}...`}
-                            disabled={isTyping}
-                            className="bg-transparent border-none outline-none text-lg text-slate-700 placeholder:text-slate-300 px-2 py-3 w-full"
+                            type="file"
+                            ref={fileInputRef}
+                            onChange={handleImageSelect}
+                            accept="image/*"
+                            className="hidden"
                         />
-                    </div>
 
-
-                    {inputText.trim() || selectedImage ? (
-                        <button
-                            onClick={handleSend}
-                            disabled={isTyping}
-                            className="p-3 bg-brand-primary text-white rounded-full hover:bg-violet-600 transition-transform active:scale-95 shadow-md shadow-violet-200 disabled:opacity-50 disabled:scale-100"
-                        >
-                            {isTyping ? <Loader2 className="w-6 h-6 animate-spin" /> : <Send className="w-6 h-6" />}
-                        </button>
-                    ) : (
-                        <button
-                            onClick={isListening && mediaRecorderRef.current ? stopFallbackRecording : startListening}
-                            disabled={(isListening && !mediaRecorderRef.current) || isTyping}
-                            className={clsx(
-                                "p-3 rounded-full transition-all",
-                                isListening ? "bg-red-500 text-white animate-pulse" : "text-slate-400 hover:text-brand-primary hover:bg-slate-50"
+                        <div className="flex-1 flex flex-col min-w-0">
+                            {selectedImage && (
+                                <div className="relative w-16 h-16 sm:w-20 sm:h-20 mb-2 group animate-in zoom-in">
+                                    <img src={selectedImage} alt="Preview" className="w-full h-full object-cover rounded-xl border border-slate-200 shadow-md" />
+                                    <button
+                                        onClick={() => setSelectedImage(null)}
+                                        className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full shadow-lg hover:bg-red-600 active:scale-90 transition-all font-bold"
+                                    >
+                                        <X className="w-3 h-3" />
+                                    </button>
+                                </div>
                             )}
-                        >
-                            <Mic className="w-6 h-6" />
-                        </button>
-                    )}
+                            <input
+                                type="text"
+                                value={inputText}
+                                onChange={(e) => setInputText(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                                placeholder={`Talk to ${userProfile?.budName || personality.name}...`}
+                                disabled={isTyping}
+                                className="bg-transparent border-none outline-none text-base sm:text-lg text-slate-700 placeholder:text-slate-300 py-2 sm:py-3 w-full font-medium"
+                            />
+                        </div>
+
+                        <div className="flex items-center gap-1 sm:gap-2">
+                            {inputText.trim() || selectedImage ? (
+                                <button
+                                    onClick={handleSend}
+                                    disabled={isTyping}
+                                    className="p-2.5 sm:p-4 bg-brand-primary text-white rounded-xl sm:rounded-2xl hover:bg-violet-600 transition-all active:scale-95 shadow-lg shadow-brand-primary/25 disabled:opacity-50"
+                                >
+                                    {isTyping ? <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 animate-spin" /> : <Send className="w-5 h-5 sm:w-6 sm:h-6" />}
+                                </button>
+                            ) : (
+                                <button
+                                    onClick={isListening && mediaRecorderRef.current ? stopFallbackRecording : startListening}
+                                    disabled={(isListening && !mediaRecorderRef.current) || isTyping}
+                                    className={clsx(
+                                        "p-2.5 sm:p-4 rounded-xl sm:rounded-2xl transition-all active:scale-95 flex items-center justify-center",
+                                        isListening ? "bg-red-500 text-white animate-pulse" : "bg-slate-50 text-slate-400 hover:text-brand-primary hover:bg-slate-100"
+                                    )}
+                                >
+                                    <Mic className="w-5 h-5 sm:w-6 sm:h-6" />
+                                </button>
+                            )}
+                        </div>
+                    </div>
                 </div>
             )}
             {/* Custom Personality Modal */}
