@@ -1,4 +1,4 @@
-import NextAuth, { NextAuthOptions } from "next-auth";
+import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import fs from "fs";
@@ -6,8 +6,12 @@ import path from "path";
 
 const USERS_FILE = path.join(process.cwd(), "src/lib/users.json");
 
-if (!process.env.NEXTAUTH_SECRET && process.env.NODE_ENV !== "development") {
-    throw new Error("NEXTAUTH_SECRET is required in non-development environments.");
+function requireNextAuthSecret() {
+    if (!process.env.NEXTAUTH_SECRET && process.env.NODE_ENV !== "development") {
+        throw new Error("NEXTAUTH_SECRET is required in non-development environments.");
+    }
+
+    return process.env.NEXTAUTH_SECRET;
 }
 
 export function getUsers() {
@@ -31,69 +35,71 @@ export function saveUsers(users: any[]) {
     fs.renameSync(tempFile, USERS_FILE);
 }
 
-export const authOptions: NextAuthOptions = {
-    providers: [
-        CredentialsProvider({
-            name: "Credentials",
-            credentials: {
-                username: { label: "Username", type: "text" },
-                password: { label: "Password", type: "password" },
-                // Extra fields for signup (handled in a separate logic usually, 
-                // but we can piggyback or use an API route)
-            },
-            async authorize(credentials) {
-                if (!credentials?.username || !credentials?.password) return null;
+export function getAuthOptions(): NextAuthOptions {
+    return {
+        providers: [
+            CredentialsProvider({
+                name: "Credentials",
+                credentials: {
+                    username: { label: "Username", type: "text" },
+                    password: { label: "Password", type: "password" },
+                    // Extra fields for signup (handled in a separate logic usually,
+                    // but we can piggyback or use an API route)
+                },
+                async authorize(credentials) {
+                    if (!credentials?.username || !credentials?.password) return null;
 
-                const users = getUsers();
-                const user = users.find((u: any) => u.username === credentials.username);
+                    const users = getUsers();
+                    const user = users.find((u: any) => u.username === credentials.username);
 
-                if (user && bcrypt.compareSync(credentials.password, user.password)) {
-                    return {
-                        id: user.id,
-                        name: user.username,
-                        username: user.username,
-                        age: user.age,
-                        gender: user.gender,
-                        occupation: user.occupation,
-                        budName: user.budName || 'Bud',
-                    };
+                    if (user && bcrypt.compareSync(credentials.password, user.password)) {
+                        return {
+                            id: user.id,
+                            name: user.username,
+                            username: user.username,
+                            age: user.age,
+                            gender: user.gender,
+                            occupation: user.occupation,
+                            budName: user.budName || "Bud",
+                        };
+                    }
+                    return null;
                 }
-                return null;
+            })
+        ],
+        callbacks: {
+            async jwt({ token, user }) {
+                if (user) {
+                    token.id = user.id;
+                    token.username = (user as any).username;
+                    token.age = (user as any).age;
+                    token.gender = (user as any).gender;
+                    token.occupation = (user as any).occupation;
+                    token.budName = (user as any).budName || "Bud";
+                }
+                return token;
+            },
+            async session({ session, token }) {
+                if (token) {
+                    (session.user as any).id = token.id;
+                    (session.user as any).username = token.username;
+                    (session.user as any).age = token.age;
+                    (session.user as any).gender = token.gender;
+                    (session.user as any).occupation = token.occupation;
+                    (session.user as any).budName = token.budName;
+                }
+                return session;
             }
-        })
-    ],
-    callbacks: {
-        async jwt({ token, user }) {
-            if (user) {
-                token.id = user.id;
-                token.username = (user as any).username;
-                token.age = (user as any).age;
-                token.gender = (user as any).gender;
-                token.occupation = (user as any).occupation;
-                token.budName = (user as any).budName || 'Bud';
-            }
-            return token;
         },
-        async session({ session, token }) {
-            if (token) {
-                (session.user as any).id = token.id;
-                (session.user as any).username = token.username;
-                (session.user as any).age = token.age;
-                (session.user as any).gender = token.gender;
-                (session.user as any).occupation = token.occupation;
-                (session.user as any).budName = token.budName;
-            }
-            return session;
-        }
-    },
-    pages: {
-        signIn: "/",
-    },
-    session: {
-        strategy: "jwt",
-    },
-    secret: process.env.NEXTAUTH_SECRET,
-};
+        pages: {
+            signIn: "/",
+        },
+        session: {
+            strategy: "jwt",
+        },
+        secret: requireNextAuthSecret(),
+    };
+}
 
 // Also export helper for user registration
 export function registerUser(userData: any) {
