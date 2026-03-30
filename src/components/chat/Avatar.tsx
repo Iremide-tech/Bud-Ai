@@ -79,7 +79,7 @@ export function Avatar({ isListening, isSpeaking, isTyping, personality, express
         >
             <div
                 className={clsx(
-                    "relative w-48 h-48 md:w-64 h-64 transition-all duration-500",
+                    "relative w-48 h-48 md:w-64 md:h-64 transition-all duration-500",
                     isListening && "scale-105",
                 )}
                 style={{

@@ -6,14 +6,29 @@ import path from "path";
 
 const USERS_FILE = path.join(process.cwd(), "src/lib/users.json");
 
+if (!process.env.NEXTAUTH_SECRET && process.env.NODE_ENV !== "development") {
+    throw new Error("NEXTAUTH_SECRET is required in non-development environments.");
+}
+
 export function getUsers() {
     if (!fs.existsSync(USERS_FILE)) return [];
-    const data = fs.readFileSync(USERS_FILE, "utf-8");
-    return JSON.parse(data);
+    try {
+        const data = fs.readFileSync(USERS_FILE, "utf-8");
+        const parsed = JSON.parse(data);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
 }
 
 export function saveUsers(users: any[]) {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    const dir = path.dirname(USERS_FILE);
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+    const tempFile = `${USERS_FILE}.tmp`;
+    fs.writeFileSync(tempFile, JSON.stringify(users, null, 2));
+    fs.renameSync(tempFile, USERS_FILE);
 }
 
 export const authOptions: NextAuthOptions = {
@@ -77,18 +92,20 @@ export const authOptions: NextAuthOptions = {
     session: {
         strategy: "jwt",
     },
-    secret: process.env.NEXTAUTH_SECRET || "fallback-secret-for-dev-only",
+    secret: process.env.NEXTAUTH_SECRET,
 };
 
 // Also export helper for user registration
 export function registerUser(userData: any) {
     const users = getUsers();
-    if (users.find((u: any) => u.username === userData.username)) {
+    const username = typeof userData.username === "string" ? userData.username.trim() : "";
+    if (users.find((u: any) => u.username === username)) {
         throw new Error("User already exists");
     }
     const hashedPassword = bcrypt.hashSync(userData.password, 10);
     const newUser = {
         ...userData,
+        username,
         id: Date.now().toString(),
         password: hashedPassword,
         budName: userData.budName || 'Bud',

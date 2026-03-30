@@ -13,6 +13,19 @@ export async function POST(request: Request) {
         const body = await request.json();
         const { age, gender, occupation } = body;
 
+        const parsedAge = age !== undefined ? Number(age) : undefined;
+        if (parsedAge !== undefined && (!Number.isFinite(parsedAge) || parsedAge < 1 || parsedAge > 120)) {
+            return NextResponse.json({ error: "Invalid age" }, { status: 400 });
+        }
+
+        if (gender !== undefined && typeof gender !== "string") {
+            return NextResponse.json({ error: "Invalid gender" }, { status: 400 });
+        }
+
+        if (occupation !== undefined && typeof occupation !== "string") {
+            return NextResponse.json({ error: "Invalid occupation" }, { status: 400 });
+        }
+
         const users = getUsers();
         const userIndex = users.findIndex((u: any) => u.username === (session.user as any).username);
 
@@ -21,11 +34,14 @@ export async function POST(request: Request) {
         }
 
         // Update user data
+        const safeGender = typeof gender === "string" && gender.trim().length > 0 ? gender.trim() : users[userIndex].gender;
+        const safeOccupation = typeof occupation === "string" && occupation.trim().length > 0 ? occupation.trim() : users[userIndex].occupation;
+
         users[userIndex] = {
             ...users[userIndex],
-            age: age !== undefined ? parseInt(age) : users[userIndex].age,
-            gender: gender || users[userIndex].gender,
-            occupation: occupation || users[userIndex].occupation,
+            age: parsedAge !== undefined ? parsedAge : users[userIndex].age,
+            gender: safeGender,
+            occupation: safeOccupation,
         };
 
         saveUsers(users);

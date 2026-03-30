@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Mic, Smile, Image as ImageIcon, Loader2, Sparkles, BookOpen, Coffee, BrainCircuit, Wand2, X, Phone, PhoneOff } from 'lucide-react';
+import { Send, Mic, Image as ImageIcon, Loader2, Sparkles, BookOpen, Coffee, BrainCircuit, Wand2, X, Phone, Globe } from 'lucide-react';
 import clsx from 'clsx';
 import { AIService, Message, Personality, PRESETS } from '@/lib/ai-service';
-import { generateQuiz, generateStorySegment, generatePersonalityIdea, elevenLabsTTS, transcribeAudio } from '@/app/actions';
+import { elevenLabsTTS, transcribeAudio } from '@/app/actions';
 import { QuizCard } from '@/components/gamification/QuizCard';
 import { StoryBuilder } from '@/components/gamification/StoryBuilder';
 import { CustomizePersonalityModal } from './CustomizePersonalityModal';
@@ -12,11 +12,26 @@ import { Avatar, Expression } from './Avatar';
 import { CallInterface } from './CallInterface';
 import { useAudioAnalyzer } from '@/hooks/useAudioAnalyzer';
 import { useUser } from '@/lib/user-context';
+import { getWebSearchIntent } from '@/lib/web-search-intent';
+
+type SpeechRecognitionLike = {
+    continuous: boolean;
+    interimResults: boolean;
+    lang: string;
+    start: () => void;
+    abort: () => void;
+    onstart: (() => void) | null;
+    onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+    onerror: ((event: { error?: string; message?: string }) => void) | null;
+    onend: (() => void) | null;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
 declare global {
     interface Window {
-        webkitSpeechRecognition: any;
-        SpeechRecognition: any;
+        webkitSpeechRecognition?: SpeechRecognitionConstructor;
+        SpeechRecognition?: SpeechRecognitionConstructor;
     }
 }
 
@@ -42,19 +57,38 @@ export function ChatInterface() {
     const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
     const [isCallActive, setIsCallActive] = useState(false);
     const [status, setStatus] = useState<string>('');
+    const [isSearchingWeb, setIsSearchingWeb] = useState(false);
     const volume = useAudioAnalyzer(audioStream);
 
-    const recognitionRef = useRef<any>(null);
+    const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messagesRef = useRef<Message[]>(messages);
+    const audioStreamRef = useRef<MediaStream | null>(null);
+    const listenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const fallbackStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const ignoreRecognitionEndRef = useRef(false);
+    const shouldTranscribeRecorderRef = useRef(true);
 
     // Sync messagesRef to avoid stale closures
     useEffect(() => {
         messagesRef.current = messages;
     }, [messages]);
+
+    useEffect(() => {
+        audioStreamRef.current = audioStream;
+    }, [audioStream]);
+
+    const stopActiveAudioStream = (stream?: MediaStream | null) => {
+        const streamToStop = stream ?? audioStreamRef.current;
+        if (streamToStop) {
+            streamToStop.getTracks().forEach(track => track.stop());
+        }
+        audioStreamRef.current = null;
+        setAudioStream(null);
+    };
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -76,6 +110,16 @@ export function ChatInterface() {
                 console.error("Failed to load saved personality", e);
             }
         }
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            stopListening({ clearStatus: true, transcribeOnStop: false });
+            if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+            }
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const speakResponse = async (text: string) => {
@@ -120,114 +164,62 @@ export function ChatInterface() {
         }
     };
 
-    const startListening = async () => {
-        // 1. Cleanup old streams and contexts
-        if (audioStream) {
-            audioStream.getTracks().forEach(track => track.stop());
-            setAudioStream(null);
+    const clearVoiceTimers = () => {
+        if (listenTimeoutRef.current) {
+            clearTimeout(listenTimeoutRef.current);
+            listenTimeoutRef.current = null;
         }
-
-        if (typeof window !== 'undefined') {
-            const AudioContextClass = (window.AudioContext || (window as any).webkitAudioContext);
-            if (AudioContextClass) {
-                const tempCtx = new AudioContextClass();
-                if (tempCtx.state === 'suspended') {
-                    tempCtx.resume().then(() => tempCtx.close());
-                } else {
-                    tempCtx.close();
-                }
-            }
+        if (fallbackStopTimeoutRef.current) {
+            clearTimeout(fallbackStopTimeoutRef.current);
+            fallbackStopTimeoutRef.current = null;
         }
+    };
 
-        const SpeechRecognition = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+    const stopListening = (options?: { clearStatus?: boolean; transcribeOnStop?: boolean }) => {
+        const shouldClearStatus = options?.clearStatus ?? false;
+        shouldTranscribeRecorderRef.current = options?.transcribeOnStop ?? true;
 
-        // 2. Start Speech Recognition (Native)
-        if (SpeechRecognition) {
+        clearVoiceTimers();
+        ignoreRecognitionEndRef.current = true;
+
+        if (recognitionRef.current) {
             try {
-                const recognition = new SpeechRecognition();
-                recognitionRef.current = recognition;
-
-                recognition.continuous = false;
-                recognition.interimResults = false;
-                recognition.lang = 'en-US';
-
-                let listenTimeout: NodeJS.Timeout;
-
-                const cleanup = () => {
-                    clearTimeout(listenTimeout);
-                    setIsListening(false);
-                    setAudioStream(null);
-                };
-
-                recognition.onstart = async () => {
-                    setIsListening(true);
-                    setStatus('Listening...');
-                    try {
-                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                        setAudioStream(stream);
-                    } catch (e) {
-                        console.warn("Visualizer mic access deferred", e);
-                    }
-
-                    listenTimeout = setTimeout(() => {
-                        if (isListening) {
-                            recognition.abort();
-                            setStatus('No speech detected');
-                            cleanup();
-                        }
-                    }, 10000);
-                };
-
-                recognition.onresult = (event: any) => {
-                    clearTimeout(listenTimeout);
-                    const transcript = event.results[0][0].transcript;
-                    setInputText(transcript);
-                    setIsListening(false);
-                    handleVoiceSend(transcript);
-                };
-
-                recognition.onerror = (event: any) => {
-                    clearTimeout(listenTimeout);
-                    console.error('Speech recognition error', event.error);
-
-                    // If native fails, try fallback unless it's a permission issue
-                    if (event.error === 'not-allowed') {
-                        setIsListening(false);
-                        setStatus('Mic access denied');
-                    } else if (event.error === 'no-speech') {
-                        setIsListening(false);
-                        setStatus('No speech detected');
-                    } else {
-                        console.log("Native failed, attempting Whisper fallback...");
-                        startFallbackRecording();
-                    }
-                };
-
-                recognition.onend = () => {
-                    clearTimeout(listenTimeout);
-                    setIsListening(false);
-                    setAudioStream(null);
-                    // Don't clear status if it contains an error or "Speaking"
-                    setStatus(prev => (prev.includes('Error') || prev.includes('detected') || prev.includes('Speaking')) ? prev : '');
-                };
-
-                recognition.start();
-            } catch (err) {
-                console.error("Speech error", err);
-                startFallbackRecording();
+                recognitionRef.current.abort();
+            } catch {
+                // no-op: recognition may already be stopped
             }
-        } else {
-            // 3. Fallback to Whisper
-            startFallbackRecording();
+            recognitionRef.current = null;
+        }
+
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            mediaRecorderRef.current.stop();
+        }
+
+        stopActiveAudioStream();
+        setIsListening(false);
+
+        if (shouldClearStatus) {
+            setStatus('');
         }
     };
 
     const startFallbackRecording = async () => {
+        if (typeof MediaRecorder === 'undefined') {
+            setStatus('Voice recording unsupported on this browser');
+            setIsListening(false);
+            return;
+        }
+
+        if (!navigator.mediaDevices?.getUserMedia) {
+            setStatus('Voice input unsupported on this browser');
+            setIsListening(false);
+            return;
+        }
+
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             setAudioStream(stream);
 
-            // Detection of best supported MIME type
             const types = [
                 'audio/webm;codecs=opus',
                 'audio/webm',
@@ -235,12 +227,11 @@ export function ChatInterface() {
                 'audio/mp4',
                 'audio/mpeg'
             ];
-            const supportedType = types.find(type => MediaRecorder.isTypeSupported(type)) || '';
+            const supportedType = types.find(type => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type));
+            const mediaRecorder = supportedType ? new MediaRecorder(stream, { mimeType: supportedType }) : new MediaRecorder(stream);
 
-            console.log("Selected fallback MIME type:", supportedType);
-
-            const mediaRecorder = new MediaRecorder(stream, { mimeType: supportedType });
             mediaRecorderRef.current = mediaRecorder;
+            shouldTranscribeRecorderRef.current = true;
             audioChunksRef.current = [];
 
             mediaRecorder.ondataavailable = (event) => {
@@ -250,36 +241,61 @@ export function ChatInterface() {
             };
 
             mediaRecorder.onstop = async () => {
-                const audioBlob = new Blob(audioChunksRef.current, { type: supportedType });
-                if (audioBlob.size < 500) { // Lowered threshold slightly
+                clearVoiceTimers();
+                setIsListening(false);
+                stopActiveAudioStream(stream);
+
+                const shouldTranscribe = shouldTranscribeRecorderRef.current;
+                shouldTranscribeRecorderRef.current = true;
+                if (mediaRecorderRef.current === mediaRecorder) {
+                    mediaRecorderRef.current = null;
+                }
+
+                if (!shouldTranscribe) {
+                    return;
+                }
+
+                const audioBlob = new Blob(audioChunksRef.current, { type: supportedType || undefined });
+                if (audioBlob.size < 500) {
                     setStatus('No speech detected');
-                    setIsListening(false);
                     return;
                 }
 
                 setStatus('Transcribing...');
-                setIsListening(false);
 
                 try {
-                    // Convert blob to base64
                     const reader = new FileReader();
-                    reader.readAsDataURL(audioBlob);
                     reader.onloadend = async () => {
-                        const base64Audio = (reader.result as string).split(',')[1];
-                        const extension = supportedType.split('/')[1]?.split(';')[0] || 'webm';
-                        const { text, error } = await transcribeAudio(base64Audio, extension);
+                        try {
+                            const base64Audio = (reader.result as string).split(',')[1];
+                            const extension = supportedType ? (supportedType.split('/')[1]?.split(';')[0] || 'webm') : 'webm';
+                            const { text, error } = await transcribeAudio(base64Audio, extension);
 
-                        if (error) {
-                            setStatus('Transcription Error');
-                            console.error("Whisper Fallback Error:", error);
-                        } else if (text && text.trim().length > 0) {
-                            setInputText(text);
-                            handleVoiceSend(text);
-                            setStatus('');
-                        } else {
+                            if (error) {
+                                setStatus('Transcription Error');
+                                console.error("Whisper fallback error:", error);
+                                return;
+                            }
+
+                            if (text && text.trim().length > 0) {
+                                setInputText(text);
+                                handleVoiceSend(text);
+                                setStatus('');
+                                return;
+                            }
+
                             setStatus('No speech detected');
+                        } catch (err) {
+                            console.error("Transcription process error", err);
+                            setStatus('Transcription Error');
                         }
                     };
+
+                    reader.onerror = () => {
+                        setStatus('Transcription Error');
+                    };
+
+                    reader.readAsDataURL(audioBlob);
                 } catch (err) {
                     console.error("Transcription process error", err);
                     setStatus('Transcription Error');
@@ -290,30 +306,139 @@ export function ChatInterface() {
             setStatus('Recording...');
             mediaRecorder.start();
 
-            // Auto-stop after 10 seconds
-            setTimeout(() => {
+            fallbackStopTimeoutRef.current = setTimeout(() => {
                 if (mediaRecorder.state === 'recording') {
-                    stopFallbackRecording();
+                    stopListening({ transcribeOnStop: true });
                 }
             }, 10000);
-
         } catch (err) {
-            console.error("Fallback Mic Error", err);
-            setStatus('Mic Access Denied');
+            console.error("Fallback mic error", err);
+            setStatus('Mic access denied');
             setIsListening(false);
         }
     };
 
-    const stopFallbackRecording = () => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-            mediaRecorderRef.current.stop();
-            audioStream?.getTracks().forEach(track => track.stop());
-            setAudioStream(null);
+    const startListening = async () => {
+        if (isTyping) return;
+
+        stopListening({ transcribeOnStop: false });
+
+        if (typeof window !== 'undefined') {
+            const maybeWin = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
+            const AudioContextClass = maybeWin.AudioContext || maybeWin.webkitAudioContext;
+            if (AudioContextClass) {
+                const tempCtx = new AudioContextClass();
+                if (tempCtx.state === 'suspended') {
+                    tempCtx.resume().then(() => tempCtx.close());
+                } else {
+                    tempCtx.close();
+                }
+            }
+        }
+
+        const SpeechRecognitionCtor = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+
+        if (!SpeechRecognitionCtor) {
+            startFallbackRecording();
+            return;
+        }
+
+        try {
+            const recognition = new SpeechRecognitionCtor();
+            recognitionRef.current = recognition;
+            ignoreRecognitionEndRef.current = false;
+
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+
+            recognition.onstart = async () => {
+                setIsListening(true);
+                setStatus('Listening...');
+
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    setAudioStream(stream);
+                } catch (err) {
+                    console.warn("Visualizer mic access deferred", err);
+                }
+
+                listenTimeoutRef.current = setTimeout(() => {
+                    if (recognitionRef.current === recognition) {
+                        setStatus('No speech detected');
+                        stopListening({ transcribeOnStop: false });
+                    }
+                }, 10000);
+            };
+
+            recognition.onresult = (event) => {
+                clearVoiceTimers();
+
+                const transcript = event.results[0]?.[0]?.transcript || '';
+                if (!transcript.trim()) {
+                    setStatus('No speech detected');
+                    stopListening({ transcribeOnStop: false });
+                    return;
+                }
+
+                setInputText(transcript);
+                stopListening({ transcribeOnStop: false });
+                handleVoiceSend(transcript);
+            };
+
+            recognition.onerror = (event) => {
+                clearVoiceTimers();
+                const err = event?.error || event?.message || 'unknown';
+
+                if (err === 'no-speech') {
+                    setStatus('No speech detected');
+                    stopListening({ transcribeOnStop: false });
+                    return;
+                }
+
+                if (err === 'not-allowed' || err === 'permission-denied') {
+                    setStatus('Mic access denied');
+                    stopListening({ transcribeOnStop: false });
+                    return;
+                }
+
+                console.error('Speech recognition error', err);
+                stopListening({ transcribeOnStop: false });
+                startFallbackRecording();
+            };
+
+            recognition.onend = () => {
+                clearVoiceTimers();
+                if (recognitionRef.current === recognition) {
+                    recognitionRef.current = null;
+                }
+
+                const shouldIgnore = ignoreRecognitionEndRef.current;
+                ignoreRecognitionEndRef.current = false;
+                setIsListening(false);
+                stopActiveAudioStream();
+
+                if (shouldIgnore) return;
+
+                setStatus(prev => (
+                    prev.includes('Error') ||
+                    prev.includes('detected') ||
+                    prev.includes('Speaking') ||
+                    prev.includes('Mic') ||
+                    prev.includes('Transcrib')
+                ) ? prev : '');
+            };
+
+            recognition.start();
+        } catch (err) {
+            console.error("Speech recognition start error", err);
+            startFallbackRecording();
         }
     };
 
     const handleVoiceSend = async (text: string) => {
         if (!text.trim() || isTyping) return;
+        const searchIntent = getWebSearchIntent(text);
 
         const newMessage: Message = {
             id: Date.now().toString(),
@@ -325,7 +450,8 @@ export function ChatInterface() {
         setMessages(prev => [...prev, newMessage]);
         setIsTyping(true);
         setCurrentExpression('thinking');
-        setStatus('Thinking...');
+        setStatus(searchIntent.shouldSearch ? 'Searching web...' : 'Thinking...');
+        setIsSearchingWeb(searchIntent.shouldSearch);
 
         try {
             const response = await AIService.sendMessage(text, messagesRef.current, userProfile);
@@ -334,6 +460,7 @@ export function ChatInterface() {
                 sender: 'ai',
                 text: response.text,
                 image: response.image,
+                webVerified: !!response.usedWebSearch,
                 timestamp: new Date()
             };
             setMessages(prev => [...prev, aiResponse]);
@@ -349,11 +476,13 @@ export function ChatInterface() {
             setStatus('Error! Try again.');
         } finally {
             setIsTyping(false);
+            setIsSearchingWeb(false);
         }
     };
 
     const handleSend = async () => {
         if ((!inputText.trim() && !selectedImage) || isTyping) return;
+        const searchIntent = getWebSearchIntent(inputText);
 
         const userText = inputText;
         const currentImage = selectedImage;
@@ -371,14 +500,16 @@ export function ChatInterface() {
         setSelectedImage(null);
         setIsTyping(true);
         setCurrentExpression('thinking');
+        setIsSearchingWeb(searchIntent.shouldSearch);
 
         try {
-            const response = await AIService.sendMessage(userText, messages, userProfile, currentImage || undefined);
+            const response = await AIService.sendMessage(userText, messagesRef.current, userProfile, currentImage || undefined);
             const aiResponse: Message = {
                 id: (Date.now() + 1).toString(),
                 sender: 'ai',
                 text: response.text,
                 image: response.image,
+                webVerified: !!response.usedWebSearch,
                 timestamp: new Date()
             };
             setMessages(prev => [...prev, aiResponse]);
@@ -388,6 +519,7 @@ export function ChatInterface() {
             console.error("AI Error", error);
         } finally {
             setIsTyping(false);
+            setIsSearchingWeb(false);
         }
     };
 
@@ -418,10 +550,20 @@ export function ChatInterface() {
         changePersonality(p);
     };
 
+    const startCall = () => {
+        setIsCallActive(true);
+        setStatus('');
+    };
+
+    const endCall = () => {
+        setIsCallActive(false);
+        stopListening({ clearStatus: true, transcribeOnStop: false });
+    };
+
     return (
         <div className="flex flex-col h-[calc(100vh-8rem)]">
             {/* Personality & Game Header - Improved for mobile horizontal scroll */}
-            <div className="flex-shrink-0 bg-white/50 backdrop-blur-md rounded-2xl p-3 border border-white/50 shadow-sm mb-4 sticky top-0 z-20 overflow-x-auto no-scrollbar pb-3">
+            <div className="shrink-0 bg-white/50 backdrop-blur-md rounded-2xl p-3 border border-white/50 shadow-sm mb-4 sticky top-0 z-20 overflow-x-auto no-scrollbar pb-3">
                 <div className="flex items-center gap-2 min-w-max px-1">
                     <button
                         onClick={() => changePersonality(PRESETS.buddy)}
@@ -463,7 +605,7 @@ export function ChatInterface() {
                         <BookOpen className="w-5 h-5" />
                     </button>
                     <button
-                        onClick={() => setIsCallActive(true)}
+                        onClick={startCall}
                         className="p-2.5 rounded-xl flex items-center gap-2 transition-all bg-green-500 text-white shadow-md active:scale-95"
                     >
                         <Phone className="w-5 h-5" />
@@ -510,11 +652,18 @@ export function ChatInterface() {
                                         ? "bg-brand-primary text-white rounded-br-none"
                                         : "bg-white text-slate-800 rounded-bl-none border border-slate-100"
                                 )}>
-                                    {msg.image && (
-                                        <div className="mb-2 rounded-lg overflow-hidden border border-slate-100 bg-slate-50">
-                                            <img src={msg.image} alt="Sent image" className="max-w-full h-auto object-contain max-h-64" />
+                                    {msg.sender === 'ai' && msg.webVerified && (
+                                        <div className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-1 text-[10px] font-bold uppercase tracking-wide">
+                                            <Globe className="w-3 h-3" />
+                                            Web-verified
                                         </div>
                                     )}
+                                                            {msg.image && (
+                                                                <div className="mb-2 rounded-lg overflow-hidden border border-slate-100 bg-slate-50">
+                                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                                    <img src={msg.image} alt="Sent image" className="max-w-full h-auto object-contain max-h-64" />
+                                                                </div>
+                                                            )}
                                     <p className="text-lg leading-relaxed">{msg.text}</p>
                                     <span className="text-[10px] opacity-70 absolute bottom-1 right-3">
                                         {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -530,6 +679,12 @@ export function ChatInterface() {
                                     <div className="w-2 h-2 bg-brand-primary rounded-full animate-bounce [animation-delay:-0.15s]"></div>
                                     <div className="w-2 h-2 bg-brand-primary rounded-full animate-bounce"></div>
                                 </div>
+                                {isSearchingWeb && (
+                                    <div className="ml-3 mt-2 inline-flex items-center gap-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-3 py-1">
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        Searching web...
+                                    </div>
+                                )}
                             </div>
                         )}
                         <div ref={messagesEndRef} />
@@ -539,7 +694,7 @@ export function ChatInterface() {
 
             {/* Input Area (only show if not in Game mode) */}
             {gameMode === 'none' && (
-                <div className="mt-4 bg-white/90 backdrop-blur-xl p-2 sm:p-3 rounded-[2rem] sm:rounded-3xl shadow-xl border border-white/50 flex flex-col gap-2 transition-all focus-within:ring-4 focus-within:ring-brand-primary/10">
+                <div className="mt-4 bg-white/90 backdrop-blur-xl p-2 sm:p-3 rounded-4xl sm:rounded-3xl shadow-xl border border-white/50 flex flex-col gap-2 transition-all focus-within:ring-4 focus-within:ring-brand-primary/10">
                     <div className="flex items-center gap-1 sm:gap-2">
                         <button
                             onClick={() => fileInputRef.current?.click()}
@@ -558,6 +713,7 @@ export function ChatInterface() {
                         <div className="flex-1 flex flex-col min-w-0">
                             {selectedImage && (
                                 <div className="relative w-16 h-16 sm:w-20 sm:h-20 mb-2 group animate-in zoom-in">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img src={selectedImage} alt="Preview" className="w-full h-full object-cover rounded-xl border border-slate-200 shadow-md" />
                                     <button
                                         onClick={() => setSelectedImage(null)}
@@ -589,8 +745,8 @@ export function ChatInterface() {
                                 </button>
                             ) : (
                                 <button
-                                    onClick={isListening && mediaRecorderRef.current ? stopFallbackRecording : startListening}
-                                    disabled={(isListening && !mediaRecorderRef.current) || isTyping}
+                                    onClick={isListening ? () => stopListening({ transcribeOnStop: true }) : startListening}
+                                    disabled={isTyping}
                                     className={clsx(
                                         "p-2.5 sm:p-4 rounded-xl sm:rounded-2xl transition-all active:scale-95 flex items-center justify-center",
                                         isListening ? "bg-red-500 text-white animate-pulse" : "bg-slate-50 text-slate-400 hover:text-brand-primary hover:bg-slate-100"
@@ -622,16 +778,8 @@ export function ChatInterface() {
                     currentExpression={currentExpression}
                     status={status}
                     volume={volume}
-                    onStopListeningAction={stopFallbackRecording}
-                    isFallback={!!mediaRecorderRef.current}
-                    onHangUpAction={() => {
-                        setIsCallActive(false);
-                        setStatus('');
-                        if (audioStream) {
-                            audioStream.getTracks().forEach(track => track.stop());
-                            setAudioStream(null);
-                        }
-                    }}
+                    onStopListeningAction={() => stopListening({ transcribeOnStop: true })}
+                    onHangUpAction={endCall}
                     onStartListeningAction={startListening}
                 />
             )}

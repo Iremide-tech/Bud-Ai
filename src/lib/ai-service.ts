@@ -6,6 +6,7 @@ export type Message = {
     sender: 'user' | 'ai';
     text: string;
     image?: string; // Base64 or URL
+    webVerified?: boolean;
     timestamp: Date;
 };
 
@@ -37,7 +38,7 @@ export const AIService = {
         return currentPersonality;
     },
 
-    async sendMessage(text: string, history: Message[], profile?: UserProfile | null, image?: string): Promise<{ text: string, image?: string, mood?: string }> {
+    async sendMessage(text: string, history: Message[], profile?: UserProfile | null, image?: string): Promise<{ text: string, image?: string, mood?: string, usedWebSearch?: boolean }> {
         return await generateAIResponse(text, history, currentPersonality, profile, image);
     }
 };
