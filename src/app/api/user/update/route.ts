@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
-import { getAuthOptions, getUsers, saveUsers } from "@/lib/auth";
+import { getAuthOptions, findUserByUsername, updateUserByUsername } from "@/lib/auth";
 
 export async function POST(request: Request) {
     const session = await getServerSession(getAuthOptions());
@@ -26,28 +26,27 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "Invalid occupation" }, { status: 400 });
         }
 
-        const users = getUsers();
-        const userIndex = users.findIndex((u: any) => u.username === (session.user as any).username);
-
-        if (userIndex === -1) {
+        const existingUser = await findUserByUsername(session.user.username);
+        if (!existingUser) {
             return NextResponse.json({ error: "User not found" }, { status: 404 });
         }
 
-        // Update user data
-        const safeGender = typeof gender === "string" && gender.trim().length > 0 ? gender.trim() : users[userIndex].gender;
-        const safeOccupation = typeof occupation === "string" && occupation.trim().length > 0 ? occupation.trim() : users[userIndex].occupation;
+        const safeGender = typeof gender === "string" && gender.trim().length > 0 ? gender.trim() : existingUser.gender;
+        const safeOccupation = typeof occupation === "string" && occupation.trim().length > 0 ? occupation.trim() : existingUser.occupation;
 
-        users[userIndex] = {
-            ...users[userIndex],
-            age: parsedAge !== undefined ? parsedAge : users[userIndex].age,
+        const updated = await updateUserByUsername(session.user.username, {
+            age: parsedAge !== undefined ? parsedAge : existingUser.age,
             gender: safeGender,
             occupation: safeOccupation,
-        };
+        });
 
-        saveUsers(users);
+        if (!updated) {
+            return NextResponse.json({ error: "User not found" }, { status: 404 });
+        }
 
         return NextResponse.json({ message: "Profile updated successfully" });
-    } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 400 });
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Profile update failed";
+        return NextResponse.json({ error: message }, { status: 400 });
     }
 }

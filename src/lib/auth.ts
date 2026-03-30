@@ -1,38 +1,69 @@
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
-import fs from "fs";
-import path from "path";
+import { Collection } from "mongodb";
+import { getDatabase } from "@/lib/mongodb";
 
-const USERS_FILE = path.join(process.cwd(), "src/lib/users.json");
+export type StoredUser = {
+    id: string;
+    username: string;
+    password: string;
+    age: number;
+    gender: string;
+    occupation: string;
+    budName?: string;
+};
+
+type SessionUser = {
+    id: string;
+    username: string;
+    age: number;
+    gender: string;
+    occupation: string;
+    budName: string;
+};
+
+type RegisterUserInput = Omit<StoredUser, "id" | "password"> & {
+    password: string;
+};
+
+let usersCollectionPromise: Promise<Collection<StoredUser>> | null = null;
 
 function requireNextAuthSecret() {
-    if (!process.env.NEXTAUTH_SECRET && process.env.NODE_ENV !== "development") {
-        throw new Error("NEXTAUTH_SECRET is required in non-development environments.");
+    const secret = process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET;
+
+    if (!secret && process.env.NODE_ENV !== "development") {
+        throw new Error("NEXTAUTH_SECRET or AUTH_SECRET is required in non-development environments.");
     }
 
-    return process.env.NEXTAUTH_SECRET;
+    return secret;
 }
 
-export function getUsers() {
-    if (!fs.existsSync(USERS_FILE)) return [];
-    try {
-        const data = fs.readFileSync(USERS_FILE, "utf-8");
-        const parsed = JSON.parse(data);
-        return Array.isArray(parsed) ? parsed : [];
-    } catch {
-        return [];
+async function getUsersCollection(): Promise<Collection<StoredUser>> {
+    if (!usersCollectionPromise) {
+        usersCollectionPromise = (async () => {
+            const db = await getDatabase();
+            const collection = db.collection<StoredUser>("users");
+            await collection.createIndex({ username: 1 }, { unique: true });
+            return collection;
+        })();
     }
+
+    return usersCollectionPromise;
 }
 
-export function saveUsers(users: any[]) {
-    const dir = path.dirname(USERS_FILE);
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-    }
-    const tempFile = `${USERS_FILE}.tmp`;
-    fs.writeFileSync(tempFile, JSON.stringify(users, null, 2));
-    fs.renameSync(tempFile, USERS_FILE);
+export async function findUserByUsername(username: string): Promise<StoredUser | null> {
+    const users = await getUsersCollection();
+    return users.findOne({ username });
+}
+
+export async function updateUserByUsername(
+    username: string,
+    updates: Partial<Pick<StoredUser, "age" | "gender" | "occupation" | "budName">>
+): Promise<boolean> {
+    const users = await getUsersCollection();
+    const result = await users.updateOne({ username }, { $set: updates });
+    return result.matchedCount > 0;
 }
 
 export function getAuthOptions(): NextAuthOptions {
@@ -49,18 +80,20 @@ export function getAuthOptions(): NextAuthOptions {
                 async authorize(credentials) {
                     if (!credentials?.username || !credentials?.password) return null;
 
-                    const users = getUsers();
-                    const user = users.find((u: any) => u.username === credentials.username);
+                    const user = await findUserByUsername(credentials.username);
 
                     if (user && bcrypt.compareSync(credentials.password, user.password)) {
-                        return {
+                        const sessionUser: SessionUser = {
                             id: user.id,
-                            name: user.username,
                             username: user.username,
                             age: user.age,
                             gender: user.gender,
                             occupation: user.occupation,
                             budName: user.budName || "Bud",
+                        };
+                        return {
+                            ...sessionUser,
+                            name: user.username,
                         };
                     }
                     return null;
@@ -70,23 +103,26 @@ export function getAuthOptions(): NextAuthOptions {
         callbacks: {
             async jwt({ token, user }) {
                 if (user) {
+                    const sessionUser = user as typeof user & SessionUser;
                     token.id = user.id;
-                    token.username = (user as any).username;
-                    token.age = (user as any).age;
-                    token.gender = (user as any).gender;
-                    token.occupation = (user as any).occupation;
-                    token.budName = (user as any).budName || "Bud";
+                    token.username = sessionUser.username;
+                    token.age = sessionUser.age;
+                    token.gender = sessionUser.gender;
+                    token.occupation = sessionUser.occupation;
+                    token.budName = sessionUser.budName || "Bud";
                 }
                 return token;
             },
             async session({ session, token }) {
-                if (token) {
-                    (session.user as any).id = token.id;
-                    (session.user as any).username = token.username;
-                    (session.user as any).age = token.age;
-                    (session.user as any).gender = token.gender;
-                    (session.user as any).occupation = token.occupation;
-                    (session.user as any).budName = token.budName;
+                if (token && session.user) {
+                    Object.assign(session.user, {
+                        id: token.id,
+                        username: token.username,
+                        age: token.age,
+                        gender: token.gender,
+                        occupation: token.occupation,
+                        budName: token.budName,
+                    });
                 }
                 return session;
             }
@@ -102,21 +138,31 @@ export function getAuthOptions(): NextAuthOptions {
 }
 
 // Also export helper for user registration
-export function registerUser(userData: any) {
-    const users = getUsers();
+export function registerUser(userData: RegisterUserInput) {
     const username = typeof userData.username === "string" ? userData.username.trim() : "";
-    if (users.find((u: any) => u.username === username)) {
-        throw new Error("User already exists");
-    }
-    const hashedPassword = bcrypt.hashSync(userData.password, 10);
-    const newUser = {
+    return createUser({
         ...userData,
         username,
+    });
+}
+
+async function createUser(userData: RegisterUserInput & { username: string }) {
+    const existingUser = await findUserByUsername(userData.username);
+
+    if (existingUser) {
+        throw new Error("User already exists");
+    }
+
+    const hashedPassword = bcrypt.hashSync(userData.password, 10);
+    const newUser: StoredUser = {
+        ...userData,
         id: Date.now().toString(),
         password: hashedPassword,
-        budName: userData.budName || 'Bud',
+        budName: userData.budName || "Bud",
     };
-    users.push(newUser);
-    saveUsers(users);
+
+    const users = await getUsersCollection();
+    await users.insertOne(newUser);
+
     return newUser;
 }

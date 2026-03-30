@@ -34,7 +34,7 @@ export async function POST(request: Request) {
         const safeGender = typeof gender === "string" && gender.trim().length > 0 ? gender.trim() : "Rather not say";
         const safeOccupation = typeof occupation === "string" && occupation.trim().length > 0 ? occupation.trim() : "Explorer";
 
-        const user = registerUser({
+        const user = await registerUser({
             ...body,
             username: username.trim(),
             password,
@@ -43,7 +43,8 @@ export async function POST(request: Request) {
             occupation: safeOccupation,
         });
         return NextResponse.json({ message: "User created", user: { id: user.id, username: user.username } });
-    } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 400 });
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Signup failed";
+        return NextResponse.json({ error: message }, { status: 400 });
     }
 }

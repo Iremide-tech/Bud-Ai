@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth/next";
-import { getAuthOptions, getUsers, saveUsers } from "@/lib/auth";
+import { getAuthOptions, updateUserByUsername } from "@/lib/auth";
 
 export async function POST(request: Request) {
     try {
@@ -14,18 +14,17 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "Bud name is required" }, { status: 400 });
         }
 
-        const users = getUsers();
-        const userIndex = users.findIndex((u: any) => u.username === (session.user as any).username);
+        const updated = await updateUserByUsername(session.user.username, {
+            budName: String(budName).trim(),
+        });
 
-        if (userIndex === -1) {
+        if (!updated) {
             return NextResponse.json({ error: "User not found" }, { status: 404 });
         }
 
-        users[userIndex].budName = budName;
-        saveUsers(users);
-
         return NextResponse.json({ message: "Bud named successfully!", budName });
-    } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Bud naming failed";
+        return NextResponse.json({ error: message }, { status: 500 });
     }
 }
