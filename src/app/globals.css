@@ -1,14 +1,15 @@
 @import "tailwindcss";
 
 @theme {
-  --color-brand-primary: #8B5CF6;
-  /* Violet-500 */
-  --color-brand-secondary: #F472B6;
-  /* Pink-400 */
-  --color-brand-accent: #34D399;
-  /* Emerald-400 */
-  --color-bg-child: #EEF2FF;
-  /* Indigo-50 */
+  /* Mature, simple palette */
+  --color-brand-primary: #1F4B99;
+  /* Deep blue */
+  --color-brand-secondary: #475569;
+  /* Slate-600 */
+  --color-brand-accent: #0F766E;
+  /* Teal-700 */
+  --color-bg-child: #F8FAFC;
+  /* Slate-50 */
 
   --animate-bounce-slow: bounce-slow 3s infinite;
   --animate-float: float 6s ease-in-out infinite;
@@ -81,17 +82,15 @@
 }
 
 :root {
-  --background: #EEF2FF;
-  --foreground: #1E1B4B;
-  /* Indigo-950 */
+  --background: #F8FAFC;
+  --foreground: #0F172A;
+  /* Slate-900 */
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0F172A;
-    /* Slate-900 */
+    --background: #0B1220;
     --foreground: #F8FAFC;
-    /* Slate-50 */
   }
 }
 
@@ -100,6 +99,7 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
 }
+
 .perspective-1000 {
   perspective: 1000px;
 }
