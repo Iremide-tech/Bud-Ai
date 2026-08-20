@@ -1,13 +1,12 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useUser } from '@/lib/user-context';
 import { User, Briefcase, Calendar, Edit2, LogOut, Check, X, Sparkles, Loader2 } from 'lucide-react';
-import clsx from 'clsx';
 import { useRouter } from 'next/navigation';
 
 export default function ProfilePage() {
-    const { userProfile, logout, isLoading: isUserLoading } = useUser();
+    const { userProfile, logout, refreshProfile, isLoading: isUserLoading } = useUser();
     const router = useRouter();
     const [isEditing, setIsEditing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
@@ -18,6 +17,16 @@ export default function ProfilePage() {
         gender: userProfile?.gender || 'Rather not say',
         occupation: userProfile?.occupation || ''
     });
+
+    useEffect(() => {
+        if (userProfile) {
+            setEditForm({
+                age: userProfile.age.toString(),
+                gender: userProfile.gender,
+                occupation: userProfile.occupation
+            });
+        }
+    }, [userProfile]);
 
     if (isUserLoading) {
         return (
@@ -51,10 +60,10 @@ export default function ProfilePage() {
                 throw new Error(data.error || 'Failed to update profile');
             }
 
+            await refreshProfile();
             setIsEditing(false);
-            window.location.reload(); // Refresh to get new session data
-        } catch (err: any) {
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Failed to update profile');
         } finally {
             setIsSaving(false);
         }
@@ -63,7 +72,6 @@ export default function ProfilePage() {
     return (
         <div className="max-w-2xl mx-auto py-8 px-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="bg-white/80 backdrop-blur-xl rounded-[2.5rem] shadow-xl border border-white/50 overflow-hidden">
-                {/* Header/Cover */}
                 <div className="h-32 bg-gradient-to-r from-brand-primary to-brand-secondary relative">
                     <div className="absolute -bottom-12 left-8 p-1 bg-white rounded-3xl shadow-lg">
                         <div className="w-24 h-24 bg-slate-100 rounded-[1.25rem] flex items-center justify-center overflow-hidden">
@@ -114,7 +122,6 @@ export default function ProfilePage() {
                     )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Age Card */}
                         <div className="p-6 bg-slate-50/50 rounded-3xl border border-slate-100 group transition-all hover:bg-white hover:shadow-md">
                             <div className="flex items-center gap-4 mb-2 text-slate-400">
                                 <Calendar className="w-5 h-5" />
@@ -132,7 +139,6 @@ export default function ProfilePage() {
                             )}
                         </div>
 
-                        {/* Gender Card */}
                         <div className="p-6 bg-slate-50/50 rounded-3xl border border-slate-100 group transition-all hover:bg-white hover:shadow-md">
                             <div className="flex items-center gap-4 mb-2 text-slate-400">
                                 <Sparkles className="w-5 h-5" />
@@ -155,7 +161,6 @@ export default function ProfilePage() {
                             )}
                         </div>
 
-                        {/* Occupation Card */}
                         <div className="md:col-span-2 p-6 bg-slate-50/50 rounded-3xl border border-slate-100 group transition-all hover:bg-white hover:shadow-md">
                             <div className="flex items-center gap-4 mb-2 text-slate-400">
                                 <Briefcase className="w-5 h-5" />

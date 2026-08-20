@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useState } from 'react';
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { Sparkles, User, Briefcase, Calendar, ChevronRight, Lock, Loader2 } from 'lucide-react';
-import clsx from 'clsx';
 
 export const Login: React.FC = () => {
+    const { update } = useSession();
     const [isLoginMode, setIsLoginMode] = useState(true);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -28,16 +28,17 @@ export const Login: React.FC = () => {
         try {
             if (isLoginMode) {
                 const res = await signIn("credentials", {
-                    username: formData.username,
+                    username: formData.username.trim(),
                     password: formData.password,
                     redirect: false,
                 });
 
                 if (res?.error) {
                     setError("Invalid username or password");
+                } else {
+                    await update();
                 }
             } else {
-                // Signup Logic
                 if (!formData.username || !formData.password || !formData.age) {
                     setError("Please fill in all required fields");
                     setIsLoading(false);
@@ -48,7 +49,7 @@ export const Login: React.FC = () => {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        username: formData.username,
+                        username: formData.username.trim(),
                         password: formData.password,
                         age: parseInt(formData.age),
                         gender: formData.gender,
@@ -61,14 +62,14 @@ export const Login: React.FC = () => {
                 if (!signupRes.ok) {
                     setError(data.error || "Signup failed");
                 } else {
-                    // Automatically log in after signup
                     const res = await signIn("credentials", {
-                        username: formData.username,
+                        username: formData.username.trim(),
                         password: formData.password,
                         redirect: false,
                     });
 
                     if (!res?.error) {
+                        await update();
                         setStep('naming');
                     } else {
                         setError("Signup successful, but login failed. Please sign in manually.");
@@ -76,7 +77,7 @@ export const Login: React.FC = () => {
                     }
                 }
             }
-        } catch (err: any) {
+        } catch {
             setError("Something went wrong. Please try again.");
         } finally {
             setIsLoading(false);
@@ -92,19 +93,17 @@ export const Login: React.FC = () => {
             const res = await fetch("/api/user/update-bud-name", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ budName }),
+                body: JSON.stringify({ budName: budName.trim() }),
             });
 
             if (res.ok) {
-                // Success! Redirect will happen automatically if we use window.location.reload() 
-                // or if the parent component detects the session change.
-                // Since Next.js App Router might need a refresh to pick up session changes in client components
+                await update();
                 window.location.href = "/";
             } else {
                 const data = await res.json();
                 setError(data.error || "Failed to name Bud");
             }
-        } catch (err) {
+        } catch {
             setError("Naming failed. You can skip this for now.");
         } finally {
             setIsLoading(false);
@@ -113,7 +112,6 @@ export const Login: React.FC = () => {
 
     return (
         <div className="min-h-screen flex items-center justify-center p-4 bg-bg-child overflow-hidden relative">
-            {/* Animated background elements */}
             <div className="absolute top-20 left-10 w-32 h-32 bg-brand-primary/20 rounded-full blur-3xl animate-pulse" />
             <div className="absolute bottom-20 right-10 w-40 h-40 bg-brand-secondary/20 rounded-full blur-3xl animate-pulse delay-700" />
 
