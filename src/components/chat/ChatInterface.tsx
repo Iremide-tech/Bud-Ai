@@ -8,7 +8,7 @@ import { elevenLabsTTS, transcribeAudio } from '@/app/actions';
 import { QuizCard } from '@/components/gamification/QuizCard';
 import { StoryBuilder } from '@/components/gamification/StoryBuilder';
 import { CustomizePersonalityModal } from './CustomizePersonalityModal';
-import { Avatar, Expression } from './Avatar';
+import { Expression } from './Avatar';
 import { CallInterface } from './CallInterface';
 import { useAudioAnalyzer } from '@/hooks/useAudioAnalyzer';
 import { useUser } from '@/lib/user-context';
@@ -41,7 +41,7 @@ export function ChatInterface() {
         {
             id: '1',
             sender: 'ai',
-            text: `Hi ${userProfile?.username || 'there'}! I'm ${userProfile?.budName || 'Bud'}-AI. I'm so happy to see you! 🌟 What shall we play or talk about today?`,
+            text: `Hi ${userProfile?.username || 'there'}. I'm ${userProfile?.budName || 'Bud'}. How can I help?`,
             timestamp: new Date()
         }
     ]);
@@ -72,33 +72,22 @@ export function ChatInterface() {
     const ignoreRecognitionEndRef = useRef(false);
     const shouldTranscribeRecorderRef = useRef(true);
 
-    // Sync messagesRef to avoid stale closures
-    useEffect(() => {
-        messagesRef.current = messages;
-    }, [messages]);
-
-    useEffect(() => {
-        audioStreamRef.current = audioStream;
-    }, [audioStream]);
+    useEffect(() => { messagesRef.current = messages; }, [messages]);
+    useEffect(() => { audioStreamRef.current = audioStream; }, [audioStream]);
 
     const stopActiveAudioStream = (stream?: MediaStream | null) => {
         const streamToStop = stream ?? audioStreamRef.current;
-        if (streamToStop) {
-            streamToStop.getTracks().forEach(track => track.stop());
-        }
+        if (streamToStop) streamToStop.getTracks().forEach(track => track.stop());
         audioStreamRef.current = null;
         setAudioStream(null);
     };
 
     const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
 
-    useEffect(() => {
-        scrollToBottom();
-    }, [messages, isTyping, gameMode]);
+    useEffect(() => { scrollToBottom(); }, [messages, isTyping, gameMode]);
 
-    // Persistence Effect
     useEffect(() => {
         const saved = localStorage.getItem('bud_custom_personality');
         if (saved) {
@@ -107,7 +96,7 @@ export function ChatInterface() {
                 setPersonality(p);
                 AIService.setPersonality(p);
             } catch (e) {
-                console.error("Failed to load saved personality", e);
+                console.error('Failed to load saved personality', e);
             }
         }
     }, []);
@@ -129,22 +118,13 @@ export function ChatInterface() {
             if (audioContent && !error) {
                 const audio = new Audio(`data:audio/mpeg;base64,${audioContent}`);
                 audio.onended = () => setIsSpeaking(false);
-                audio.onerror = () => {
-                    console.error("Audio playback error, falling back to system TTS");
-                    fallbackSpeak(text);
-                };
+                audio.onerror = () => fallbackSpeak(text);
                 const playPromise = audio.play();
-                if (playPromise !== undefined) {
-                    playPromise.catch(err => {
-                        console.error("Playback failed:", err);
-                        fallbackSpeak(text);
-                    });
-                }
+                if (playPromise !== undefined) playPromise.catch(() => fallbackSpeak(text));
             } else {
                 fallbackSpeak(text);
             }
-        } catch (err) {
-            console.error("TTS Error:", err);
+        } catch {
             fallbackSpeak(text);
         }
     };
@@ -154,7 +134,7 @@ export function ChatInterface() {
             window.speechSynthesis.cancel();
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.rate = 1.0;
-            utterance.pitch = 1.2;
+            utterance.pitch = 1.0;
             utterance.onstart = () => setIsSpeaking(true);
             utterance.onend = () => setIsSpeaking(false);
             utterance.onerror = () => setIsSpeaking(false);
@@ -165,154 +145,72 @@ export function ChatInterface() {
     };
 
     const clearVoiceTimers = () => {
-        if (listenTimeoutRef.current) {
-            clearTimeout(listenTimeoutRef.current);
-            listenTimeoutRef.current = null;
-        }
-        if (fallbackStopTimeoutRef.current) {
-            clearTimeout(fallbackStopTimeoutRef.current);
-            fallbackStopTimeoutRef.current = null;
-        }
+        if (listenTimeoutRef.current) { clearTimeout(listenTimeoutRef.current); listenTimeoutRef.current = null; }
+        if (fallbackStopTimeoutRef.current) { clearTimeout(fallbackStopTimeoutRef.current); fallbackStopTimeoutRef.current = null; }
     };
 
     const stopListening = (options?: { clearStatus?: boolean; transcribeOnStop?: boolean }) => {
         const shouldClearStatus = options?.clearStatus ?? false;
         shouldTranscribeRecorderRef.current = options?.transcribeOnStop ?? true;
-
         clearVoiceTimers();
         ignoreRecognitionEndRef.current = true;
-
         if (recognitionRef.current) {
-            try {
-                recognitionRef.current.abort();
-            } catch {
-                // no-op: recognition may already be stopped
-            }
+            try { recognitionRef.current.abort(); } catch { /* noop */ }
             recognitionRef.current = null;
         }
-
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-            mediaRecorderRef.current.stop();
-        }
-
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') mediaRecorderRef.current.stop();
         stopActiveAudioStream();
         setIsListening(false);
-
-        if (shouldClearStatus) {
-            setStatus('');
-        }
+        if (shouldClearStatus) setStatus('');
     };
 
     const startFallbackRecording = async () => {
-        if (typeof MediaRecorder === 'undefined') {
-            setStatus('Voice recording unsupported on this browser');
+        if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+            setStatus('Voice input unsupported');
             setIsListening(false);
             return;
         }
-
-        if (!navigator.mediaDevices?.getUserMedia) {
-            setStatus('Voice input unsupported on this browser');
-            setIsListening(false);
-            return;
-        }
-
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             setAudioStream(stream);
-
-            const types = [
-                'audio/webm;codecs=opus',
-                'audio/webm',
-                'audio/ogg;codecs=opus',
-                'audio/mp4',
-                'audio/mpeg'
-            ];
-            const supportedType = types.find(type => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type));
+            const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/mpeg'];
+            const supportedType = types.find(type => MediaRecorder.isTypeSupported(type));
             const mediaRecorder = supportedType ? new MediaRecorder(stream, { mimeType: supportedType }) : new MediaRecorder(stream);
-
             mediaRecorderRef.current = mediaRecorder;
             shouldTranscribeRecorderRef.current = true;
             audioChunksRef.current = [];
-
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    audioChunksRef.current.push(event.data);
-                }
-            };
-
+            mediaRecorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
             mediaRecorder.onstop = async () => {
                 clearVoiceTimers();
                 setIsListening(false);
                 stopActiveAudioStream(stream);
-
                 const shouldTranscribe = shouldTranscribeRecorderRef.current;
                 shouldTranscribeRecorderRef.current = true;
-                if (mediaRecorderRef.current === mediaRecorder) {
-                    mediaRecorderRef.current = null;
-                }
-
-                if (!shouldTranscribe) {
-                    return;
-                }
-
+                if (mediaRecorderRef.current === mediaRecorder) mediaRecorderRef.current = null;
+                if (!shouldTranscribe) return;
                 const audioBlob = new Blob(audioChunksRef.current, { type: supportedType || undefined });
-                if (audioBlob.size < 500) {
-                    setStatus('No speech detected');
-                    return;
-                }
-
+                if (audioBlob.size < 500) { setStatus('No speech detected'); return; }
                 setStatus('Transcribing...');
-
-                try {
-                    const reader = new FileReader();
-                    reader.onloadend = async () => {
-                        try {
-                            const base64Audio = (reader.result as string).split(',')[1];
-                            const extension = supportedType ? (supportedType.split('/')[1]?.split(';')[0] || 'webm') : 'webm';
-                            const { text, error } = await transcribeAudio(base64Audio, extension);
-
-                            if (error) {
-                                setStatus('Transcription Error');
-                                console.error("Whisper fallback error:", error);
-                                return;
-                            }
-
-                            if (text && text.trim().length > 0) {
-                                setInputText(text);
-                                handleVoiceSend(text);
-                                setStatus('');
-                                return;
-                            }
-
-                            setStatus('No speech detected');
-                        } catch (err) {
-                            console.error("Transcription process error", err);
-                            setStatus('Transcription Error');
-                        }
-                    };
-
-                    reader.onerror = () => {
-                        setStatus('Transcription Error');
-                    };
-
-                    reader.readAsDataURL(audioBlob);
-                } catch (err) {
-                    console.error("Transcription process error", err);
-                    setStatus('Transcription Error');
-                }
+                const reader = new FileReader();
+                reader.onloadend = async () => {
+                    try {
+                        const base64Audio = (reader.result as string).split(',')[1];
+                        const extension = supportedType ? (supportedType.split('/')[1]?.split(';')[0] || 'webm') : 'webm';
+                        const { text, error } = await transcribeAudio(base64Audio, extension);
+                        if (error) { setStatus('Transcription Error'); return; }
+                        if (text && text.trim().length > 0) { setInputText(text); handleVoiceSend(text); setStatus(''); return; }
+                        setStatus('No speech detected');
+                    } catch { setStatus('Transcription Error'); }
+                };
+                reader.readAsDataURL(audioBlob);
             };
-
             setIsListening(true);
             setStatus('Recording...');
             mediaRecorder.start();
-
             fallbackStopTimeoutRef.current = setTimeout(() => {
-                if (mediaRecorder.state === 'recording') {
-                    stopListening({ transcribeOnStop: true });
-                }
+                if (mediaRecorder.state === 'recording') stopListening({ transcribeOnStop: true });
             }, 10000);
-        } catch (err) {
-            console.error("Fallback mic error", err);
+        } catch {
             setStatus('Mic access denied');
             setIsListening(false);
         }
@@ -320,49 +218,23 @@ export function ChatInterface() {
 
     const startListening = async () => {
         if (isTyping) return;
-
         stopListening({ transcribeOnStop: false });
-
-        if (typeof window !== 'undefined') {
-            const maybeWin = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
-            const AudioContextClass = maybeWin.AudioContext || maybeWin.webkitAudioContext;
-            if (AudioContextClass) {
-                const tempCtx = new AudioContextClass();
-                if (tempCtx.state === 'suspended') {
-                    tempCtx.resume().then(() => tempCtx.close());
-                } else {
-                    tempCtx.close();
-                }
-            }
-        }
-
         const SpeechRecognitionCtor = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
-
-        if (!SpeechRecognitionCtor) {
-            startFallbackRecording();
-            return;
-        }
-
+        if (!SpeechRecognitionCtor) { startFallbackRecording(); return; }
         try {
             const recognition = new SpeechRecognitionCtor();
             recognitionRef.current = recognition;
             ignoreRecognitionEndRef.current = false;
-
             recognition.continuous = false;
             recognition.interimResults = false;
             recognition.lang = 'en-US';
-
             recognition.onstart = async () => {
                 setIsListening(true);
                 setStatus('Listening...');
-
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     setAudioStream(stream);
-                } catch (err) {
-                    console.warn("Visualizer mic access deferred", err);
-                }
-
+                } catch { /* visualizer optional */ }
                 listenTimeoutRef.current = setTimeout(() => {
                     if (recognitionRef.current === recognition) {
                         setStatus('No speech detected');
@@ -370,68 +242,34 @@ export function ChatInterface() {
                     }
                 }, 10000);
             };
-
             recognition.onresult = (event) => {
                 clearVoiceTimers();
-
                 const transcript = event.results[0]?.[0]?.transcript || '';
-                if (!transcript.trim()) {
-                    setStatus('No speech detected');
-                    stopListening({ transcribeOnStop: false });
-                    return;
-                }
-
+                if (!transcript.trim()) { setStatus('No speech detected'); stopListening({ transcribeOnStop: false }); return; }
                 setInputText(transcript);
                 stopListening({ transcribeOnStop: false });
                 handleVoiceSend(transcript);
             };
-
             recognition.onerror = (event) => {
                 clearVoiceTimers();
                 const err = event?.error || event?.message || 'unknown';
-
-                if (err === 'no-speech') {
-                    setStatus('No speech detected');
-                    stopListening({ transcribeOnStop: false });
-                    return;
-                }
-
-                if (err === 'not-allowed' || err === 'permission-denied') {
-                    setStatus('Mic access denied');
-                    stopListening({ transcribeOnStop: false });
-                    return;
-                }
-
-                console.error('Speech recognition error', err);
+                if (err === 'no-speech') { setStatus('No speech detected'); stopListening({ transcribeOnStop: false }); return; }
+                if (err === 'not-allowed' || err === 'permission-denied') { setStatus('Mic access denied'); stopListening({ transcribeOnStop: false }); return; }
                 stopListening({ transcribeOnStop: false });
                 startFallbackRecording();
             };
-
             recognition.onend = () => {
                 clearVoiceTimers();
-                if (recognitionRef.current === recognition) {
-                    recognitionRef.current = null;
-                }
-
+                if (recognitionRef.current === recognition) recognitionRef.current = null;
                 const shouldIgnore = ignoreRecognitionEndRef.current;
                 ignoreRecognitionEndRef.current = false;
                 setIsListening(false);
                 stopActiveAudioStream();
-
                 if (shouldIgnore) return;
-
-                setStatus(prev => (
-                    prev.includes('Error') ||
-                    prev.includes('detected') ||
-                    prev.includes('Speaking') ||
-                    prev.includes('Mic') ||
-                    prev.includes('Transcrib')
-                ) ? prev : '');
+                setStatus(prev => (prev.includes('Error') || prev.includes('detected') || prev.includes('Mic') || prev.includes('Transcrib')) ? prev : '');
             };
-
             recognition.start();
-        } catch (err) {
-            console.error("Speech recognition start error", err);
+        } catch {
             startFallbackRecording();
         }
     };
@@ -439,20 +277,11 @@ export function ChatInterface() {
     const handleVoiceSend = async (text: string) => {
         if (!text.trim() || isTyping) return;
         const searchIntent = getWebSearchIntent(text);
-
-        const newMessage: Message = {
-            id: Date.now().toString(),
-            sender: 'user',
-            text: text,
-            timestamp: new Date()
-        };
-
-        setMessages(prev => [...prev, newMessage]);
+        setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'user', text, timestamp: new Date() }]);
         setIsTyping(true);
         setCurrentExpression('thinking');
         setStatus(searchIntent.shouldSearch ? 'Searching web...' : 'Thinking...');
         setIsSearchingWeb(searchIntent.shouldSearch);
-
         try {
             const response = await AIService.sendMessage(text, messagesRef.current, userProfile);
             const aiResponse: Message = {
@@ -464,15 +293,12 @@ export function ChatInterface() {
                 timestamp: new Date()
             };
             setMessages(prev => [...prev, aiResponse]);
-
-            if (response.mood) setCurrentExpression(response.mood as Expression);
-            else setCurrentExpression('idle');
-
+            setCurrentExpression((response.mood as Expression) || 'idle');
             setStatus('Speaking...');
             await speakResponse(aiResponse.text);
             setStatus('');
         } catch (error) {
-            console.error("AI Error", error);
+            console.error('AI Error', error);
             setStatus('Error! Try again.');
         } finally {
             setIsTyping(false);
@@ -483,40 +309,27 @@ export function ChatInterface() {
     const handleSend = async () => {
         if ((!inputText.trim() && !selectedImage) || isTyping) return;
         const searchIntent = getWebSearchIntent(inputText);
-
         const userText = inputText;
         const currentImage = selectedImage;
-
-        const newMessage: Message = {
-            id: Date.now().toString(),
-            sender: 'user',
-            text: userText,
-            image: currentImage || undefined,
-            timestamp: new Date()
-        };
-
-        setMessages(prev => [...prev, newMessage]);
+        setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'user', text: userText, image: currentImage || undefined, timestamp: new Date() }]);
         setInputText('');
         setSelectedImage(null);
         setIsTyping(true);
         setCurrentExpression('thinking');
         setIsSearchingWeb(searchIntent.shouldSearch);
-
         try {
             const response = await AIService.sendMessage(userText, messagesRef.current, userProfile, currentImage || undefined);
-            const aiResponse: Message = {
+            setMessages(prev => [...prev, {
                 id: (Date.now() + 1).toString(),
                 sender: 'ai',
                 text: response.text,
                 image: response.image,
                 webVerified: !!response.usedWebSearch,
                 timestamp: new Date()
-            };
-            setMessages(prev => [...prev, aiResponse]);
-            if (response.mood) setCurrentExpression(response.mood as Expression);
-            else setCurrentExpression('idle');
+            }]);
+            setCurrentExpression((response.mood as Expression) || 'idle');
         } catch (error) {
-            console.error("AI Error", error);
+            console.error('AI Error', error);
         } finally {
             setIsTyping(false);
             setIsSearchingWeb(false);
@@ -525,13 +338,10 @@ export function ChatInterface() {
 
     const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setSelectedImage(reader.result as string);
-            };
-            reader.readAsDataURL(file);
-        }
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onloadend = () => setSelectedImage(reader.result as string);
+        reader.readAsDataURL(file);
     };
 
     const changePersonality = (p: Personality) => {
@@ -540,7 +350,7 @@ export function ChatInterface() {
         setMessages(prev => [...prev, {
             id: Date.now().toString(),
             sender: 'ai',
-            text: p.id === 'buddy' ? "Yay! Let's play! 🎈" : p.id === 'tutor' ? "Ready to learn something new? 📚" : "Peace and calm. 🌿",
+            text: p.id === 'buddy' ? 'Switched to Buddy mode.' : p.id === 'tutor' ? 'Switched to Tutor mode.' : p.id === 'sage' ? 'Switched to Sage mode.' : `Switched to ${p.name}.`,
             timestamp: new Date()
         }]);
     };
@@ -550,216 +360,125 @@ export function ChatInterface() {
         changePersonality(p);
     };
 
-    const startCall = () => {
-        setIsCallActive(true);
-        setStatus('');
-    };
-
-    const endCall = () => {
-        setIsCallActive(false);
-        stopListening({ clearStatus: true, transcribeOnStop: false });
-    };
+    const startCall = () => { setIsCallActive(true); setStatus(''); };
+    const endCall = () => { setIsCallActive(false); stopListening({ clearStatus: true, transcribeOnStop: false }); };
 
     return (
-        <div className="flex flex-col h-[calc(100vh-8rem)]">
-            {/* Personality & Game Header - Improved for mobile horizontal scroll */}
-            <div className="shrink-0 bg-white/50 backdrop-blur-md rounded-2xl p-3 border border-white/50 shadow-sm mb-4 sticky top-0 z-20 overflow-x-auto no-scrollbar pb-3">
-                <div className="flex items-center gap-2 min-w-max px-1">
-                    <button
-                        onClick={() => changePersonality(PRESETS.buddy)}
-                        className={clsx("px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all active:scale-95", personality.id === 'buddy' ? "bg-brand-primary text-white shadow-md glow" : "bg-white/50 text-slate-500 hover:bg-white")}
-                    >
-                        <Sparkles className="w-4 h-4" /> <span className="text-sm font-bold">Buddy</span>
-                    </button>
-                    <button
-                        onClick={() => changePersonality(PRESETS.tutor)}
-                        className={clsx("px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all active:scale-95", personality.id === 'tutor' ? "bg-blue-500 text-white shadow-md glow" : "bg-white/50 text-slate-500 hover:bg-white")}
-                    >
-                        <BookOpen className="w-4 h-4" /> <span className="text-sm font-bold">Tutor</span>
-                    </button>
-                    <button
-                        onClick={() => changePersonality(PRESETS.sage)}
-                        className={clsx("px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all active:scale-95", personality.id === 'sage' ? "bg-emerald-500 text-white shadow-md glow" : "bg-white/50 text-slate-500 hover:bg-white")}
-                    >
-                        <Coffee className="w-4 h-4" /> <span className="text-sm font-bold">Sage</span>
-                    </button>
-                    <button
-                        onClick={() => setIsCustomizing(true)}
-                        className={clsx("px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all active:scale-95", personality.id === 'custom' ? "bg-fuchsia-600 text-white shadow-md glow" : "bg-white/50 text-slate-500 hover:bg-white")}
-                    >
-                        <Wand2 className="w-4 h-4" /> <span className="text-sm font-bold">{personality.id === 'custom' ? personality.name : 'Custom'}</span>
-                    </button>
-
-                    <div className="w-px h-6 bg-slate-300 mx-1"></div>
-
-                    <button
-                        onClick={() => setGameMode(gameMode === 'quiz' ? 'none' : 'quiz')}
-                        className={clsx("p-2.5 rounded-xl flex items-center gap-2 transition-all active:scale-95", gameMode === 'quiz' ? "bg-amber-500 text-white shadow-md" : "bg-white/50 text-slate-500")}
-                    >
-                        <BrainCircuit className="w-5 h-5" />
-                    </button>
-                    <button
-                        onClick={() => setGameMode(gameMode === 'story' ? 'none' : 'story')}
-                        className={clsx("p-2.5 rounded-xl flex items-center gap-2 transition-all active:scale-95", gameMode === 'story' ? "bg-fuchsia-500 text-white shadow-md" : "bg-white/50 text-slate-500")}
-                    >
-                        <BookOpen className="w-5 h-5" />
-                    </button>
-                    <button
-                        onClick={startCall}
-                        className="p-2.5 rounded-xl flex items-center gap-2 transition-all bg-green-500 text-white shadow-md active:scale-95"
-                    >
-                        <Phone className="w-5 h-5" />
-                    </button>
+        <div className="flex h-full flex-col bg-white">
+            <div className="shrink-0 border-b border-slate-200 px-4 py-3">
+                <div className="mx-auto flex max-w-3xl items-center gap-2 overflow-x-auto no-scrollbar">
+                    {[
+                        { key: 'buddy', label: 'Buddy', icon: Sparkles, onClick: () => changePersonality(PRESETS.buddy), active: personality.id === 'buddy' },
+                        { key: 'tutor', label: 'Tutor', icon: BookOpen, onClick: () => changePersonality(PRESETS.tutor), active: personality.id === 'tutor' },
+                        { key: 'sage', label: 'Sage', icon: Coffee, onClick: () => changePersonality(PRESETS.sage), active: personality.id === 'sage' },
+                        { key: 'custom', label: personality.id === 'custom' ? personality.name : 'Custom', icon: Wand2, onClick: () => setIsCustomizing(true), active: personality.id === 'custom' },
+                    ].map((item) => (
+                        <button
+                            key={item.key}
+                            onClick={item.onClick}
+                            className={clsx(
+                                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors',
+                                item.active ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                            )}
+                        >
+                            <item.icon className="h-3.5 w-3.5" />
+                            {item.label}
+                        </button>
+                    ))}
+                    <div className="mx-1 h-4 w-px bg-slate-200" />
+                    <button onClick={() => setGameMode(gameMode === 'quiz' ? 'none' : 'quiz')} className={clsx('rounded-full border p-1.5', gameMode === 'quiz' ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 text-slate-500')}><BrainCircuit className="h-3.5 w-3.5" /></button>
+                    <button onClick={() => setGameMode(gameMode === 'story' ? 'none' : 'story')} className={clsx('rounded-full border p-1.5', gameMode === 'story' ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 text-slate-500')}><BookOpen className="h-3.5 w-3.5" /></button>
+                    <button onClick={startCall} className="rounded-full border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50"><Phone className="h-3.5 w-3.5" /></button>
                 </div>
             </div>
 
-            {/* Main Content Area */}
-            <div className="flex-1 overflow-y-auto space-y-6 p-4">
-                {gameMode === 'none' && (
-                    <div className="flex justify-center mb-8">
-                        <Avatar
-                            isListening={isListening}
-                            isSpeaking={isSpeaking}
-                            isTyping={isTyping}
-                            personality={personality}
-                            expression={currentExpression}
-                            volume={volume}
-                        />
-                    </div>
-                )}
-
-                {gameMode === 'quiz' ? (
-                    <div className="flex items-center justify-center h-full">
+            <div className="flex-1 overflow-y-auto">
+                <div className="mx-auto max-w-3xl px-4 py-6">
+                    {gameMode === 'quiz' ? (
                         <QuizCard onClose={() => setGameMode('none')} />
-                    </div>
-                ) : gameMode === 'story' ? (
-                    <div className="flex items-center justify-center h-full">
+                    ) : gameMode === 'story' ? (
                         <StoryBuilder onClose={() => setGameMode('none')} />
-                    </div>
-                ) : (
-                    <>
-                        {messages.map((msg) => (
-                            <div
-                                key={msg.id}
-                                className={clsx(
-                                    "flex w-full",
-                                    msg.sender === 'user' ? "justify-end" : "justify-start"
-                                )}
-                            >
-                                <div className={clsx(
-                                    "max-w-[80%] p-4 rounded-2xl shadow-sm relative animate-in fade-in slide-in-from-bottom-2 duration-300",
-                                    msg.sender === 'user'
-                                        ? "bg-brand-primary text-white rounded-br-none"
-                                        : "bg-white text-slate-800 rounded-bl-none border border-slate-100"
-                                )}>
-                                    {msg.sender === 'ai' && msg.webVerified && (
-                                        <div className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-1 text-[10px] font-bold uppercase tracking-wide">
-                                            <Globe className="w-3 h-3" />
-                                            Web-verified
-                                        </div>
-                                    )}
-                                                            {msg.image && (
-                                                                <div className="mb-2 rounded-lg overflow-hidden border border-slate-100 bg-slate-50">
-                                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                                    <img src={msg.image} alt="Sent image" className="max-w-full h-auto object-contain max-h-64" />
-                                                                </div>
-                                                            )}
-                                    <p className="text-lg leading-relaxed">{msg.text}</p>
-                                    <span className="text-[10px] opacity-70 absolute bottom-1 right-3">
-                                        {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                    </span>
-                                </div>
-                            </div>
-                        ))}
-
-                        {isTyping && (
-                            <div className="flex justify-start w-full">
-                                <div className="bg-white p-4 rounded-2xl rounded-bl-none border border-slate-100 shadow-sm flex items-center gap-2">
-                                    <div className="w-2 h-2 bg-brand-primary rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                                    <div className="w-2 h-2 bg-brand-primary rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                                    <div className="w-2 h-2 bg-brand-primary rounded-full animate-bounce"></div>
-                                </div>
-                                {isSearchingWeb && (
-                                    <div className="ml-3 mt-2 inline-flex items-center gap-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-3 py-1">
-                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                        Searching web...
+                    ) : (
+                        <div className="space-y-6">
+                            {messages.map((msg) => (
+                                <div key={msg.id} className={clsx('flex', msg.sender === 'user' ? 'justify-end' : 'justify-start')}>
+                                    <div className={clsx('max-w-[85%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed', msg.sender === 'user' ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-800')}>
+                                        {msg.sender === 'ai' && msg.webVerified && (
+                                            <div className="mb-2 inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-slate-500">
+                                                <Globe className="h-3 w-3" /> Web
+                                            </div>
+                                        )}
+                                        {msg.image && (
+                                            <div className="mb-2 overflow-hidden rounded-lg border border-slate-200 bg-white">
+                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                <img src={msg.image} alt="Attachment" className="max-h-64 w-full object-contain" />
+                                            </div>
+                                        )}
+                                        <p className="whitespace-pre-wrap">{msg.text}</p>
                                     </div>
-                                )}
-                            </div>
-                        )}
-                        <div ref={messagesEndRef} />
-                    </>
-                )}
-            </div>
+                                </div>
+                            ))}
 
-            {/* Input Area (only show if not in Game mode) */}
-            {gameMode === 'none' && (
-                <div className="mt-4 bg-white/90 backdrop-blur-xl p-2 sm:p-3 rounded-4xl sm:rounded-3xl shadow-xl border border-white/50 flex flex-col gap-2 transition-all focus-within:ring-4 focus-within:ring-brand-primary/10">
-                    <div className="flex items-center gap-1 sm:gap-2">
-                        <button
-                            onClick={() => fileInputRef.current?.click()}
-                            className="p-2.5 sm:p-3 text-slate-400 hover:text-brand-primary hover:bg-slate-50 rounded-xl transition-all active:scale-95"
-                        >
-                            <ImageIcon className="w-5 h-5 sm:w-6 sm:h-6" />
-                        </button>
-                        <input
-                            type="file"
-                            ref={fileInputRef}
-                            onChange={handleImageSelect}
-                            accept="image/*"
-                            className="hidden"
-                        />
-
-                        <div className="flex-1 flex flex-col min-w-0">
-                            {selectedImage && (
-                                <div className="relative w-16 h-16 sm:w-20 sm:h-20 mb-2 group animate-in zoom-in">
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src={selectedImage} alt="Preview" className="w-full h-full object-cover rounded-xl border border-slate-200 shadow-md" />
-                                    <button
-                                        onClick={() => setSelectedImage(null)}
-                                        className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full shadow-lg hover:bg-red-600 active:scale-90 transition-all font-bold"
-                                    >
-                                        <X className="w-3 h-3" />
-                                    </button>
+                            {isTyping && (
+                                <div className="flex items-center gap-2 text-sm text-slate-500">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    {isSearchingWeb ? 'Searching...' : 'Thinking...'}
                                 </div>
                             )}
-                            <input
-                                type="text"
+                            <div ref={messagesEndRef} />
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {gameMode === 'none' && (
+                <div className="border-t border-slate-200 bg-white px-4 py-4">
+                    <div className="mx-auto max-w-3xl">
+                        {selectedImage && (
+                            <div className="mb-3 inline-block relative">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={selectedImage} alt="Preview" className="h-16 w-16 rounded-lg border border-slate-200 object-cover" />
+                                <button onClick={() => setSelectedImage(null)} className="absolute -right-2 -top-2 rounded-full bg-slate-900 p-1 text-white"><X className="h-3 w-3" /></button>
+                            </div>
+                        )}
+                        <div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm focus-within:border-slate-400">
+                            <button onClick={() => fileInputRef.current?.click()} className="rounded-xl p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-700">
+                                <ImageIcon className="h-5 w-5" />
+                            </button>
+                            <input type="file" ref={fileInputRef} onChange={handleImageSelect} accept="image/*" className="hidden" />
+                            <textarea
                                 value={inputText}
                                 onChange={(e) => setInputText(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                                placeholder={`Talk to ${userProfile?.budName || personality.name}...`}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleSend();
+                                    }
+                                }}
+                                placeholder={`Message ${userProfile?.budName || personality.name}`}
                                 disabled={isTyping}
-                                className="bg-transparent border-none outline-none text-base sm:text-lg text-slate-700 placeholder:text-slate-300 py-2 sm:py-3 w-full font-medium"
+                                rows={1}
+                                className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent py-2.5 text-[15px] text-slate-800 outline-none placeholder:text-slate-400"
                             />
-                        </div>
-
-                        <div className="flex items-center gap-1 sm:gap-2">
                             {inputText.trim() || selectedImage ? (
-                                <button
-                                    onClick={handleSend}
-                                    disabled={isTyping}
-                                    className="p-2.5 sm:p-4 bg-brand-primary text-white rounded-xl sm:rounded-2xl hover:bg-violet-600 transition-all active:scale-95 shadow-lg shadow-brand-primary/25 disabled:opacity-50"
-                                >
-                                    {isTyping ? <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 animate-spin" /> : <Send className="w-5 h-5 sm:w-6 sm:h-6" />}
+                                <button onClick={handleSend} disabled={isTyping} className="rounded-xl bg-slate-900 p-2.5 text-white hover:bg-slate-800 disabled:opacity-50">
+                                    {isTyping ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
                                 </button>
                             ) : (
                                 <button
                                     onClick={isListening ? () => stopListening({ transcribeOnStop: true }) : startListening}
                                     disabled={isTyping}
-                                    className={clsx(
-                                        "p-2.5 sm:p-4 rounded-xl sm:rounded-2xl transition-all active:scale-95 flex items-center justify-center",
-                                        isListening ? "bg-red-500 text-white animate-pulse" : "bg-slate-50 text-slate-400 hover:text-brand-primary hover:bg-slate-100"
-                                    )}
+                                    className={clsx('rounded-xl p-2.5', isListening ? 'bg-red-500 text-white' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700')}
                                 >
-                                    <Mic className="w-5 h-5 sm:w-6 sm:h-6" />
+                                    <Mic className="h-5 w-5" />
                                 </button>
                             )}
                         </div>
+                        {status && <p className="mt-2 text-center text-xs text-slate-400">{status}</p>}
                     </div>
                 </div>
             )}
-            {/* Custom Personality Modal */}
+
             {isCustomizing && (
                 <CustomizePersonalityModal
                     onClose={() => setIsCustomizing(false)}
@@ -768,7 +487,6 @@ export function ChatInterface() {
                 />
             )}
 
-            {/* Call Interface */}
             {isCallActive && (
                 <CallInterface
                     personality={personality}
