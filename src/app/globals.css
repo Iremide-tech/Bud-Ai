@@ -1,96 +1,53 @@
 @import "tailwindcss";
 
 @theme {
-  /* Mature, simple palette */
-  --color-brand-primary: #1F4B99;
-  /* Deep blue */
-  --color-brand-secondary: #475569;
-  /* Slate-600 */
-  --color-brand-accent: #0F766E;
-  /* Teal-700 */
-  --color-bg-child: #F8FAFC;
-  /* Slate-50 */
+  --color-brand-primary: #111827;
+  --color-brand-secondary: #4B5563;
+  --color-brand-accent: #2563EB;
+  --color-bg-child: #FFFFFF;
 
   --animate-bounce-slow: bounce-slow 3s infinite;
   --animate-float: float 6s ease-in-out infinite;
   --animate-spin-slow: spin 10s linear infinite;
-
   --animate-blink: blink 5s infinite;
   --animate-tilt: tilt 4s ease-in-out infinite;
   --animate-mouth-scale: mouth-scale 0.2s ease-in-out infinite;
 
   @keyframes bounce-slow {
-
-    0%,
-    100% {
-      transform: translateY(-5%);
-    }
-
-    50% {
-      transform: translateY(0);
-    }
+    0%, 100% { transform: translateY(-5%); }
+    50% { transform: translateY(0); }
   }
 
   @keyframes float {
-
-    0%,
-    100% {
-      transform: translateY(0px);
-    }
-
-    50% {
-      transform: translateY(-10px);
-    }
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
   }
 
   @keyframes blink {
-
-    0%,
-    10%,
-    100% {
-      transform: scaleY(1);
-    }
-
-    5% {
-      transform: scaleY(0.1);
-    }
+    0%, 10%, 100% { transform: scaleY(1); }
+    5% { transform: scaleY(0.1); }
   }
 
   @keyframes tilt {
-
-    0%,
-    100% {
-      transform: rotate(-2deg);
-    }
-
-    50% {
-      transform: rotate(2deg);
-    }
+    0%, 100% { transform: rotate(-2deg); }
+    50% { transform: rotate(2deg); }
   }
 
   @keyframes mouth-scale {
-
-    0%,
-    100% {
-      transform: scaleX(1);
-    }
-
-    50% {
-      transform: scaleX(1.1) scaleY(1.3);
-    }
+    0%, 100% { transform: scaleX(1); }
+    50% { transform: scaleX(1.1) scaleY(1.3); }
   }
 }
 
 :root {
-  --background: #F8FAFC;
-  --foreground: #0F172A;
-  /* Slate-900 */
+  --background: #FFFFFF;
+  --foreground: #111827;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0B1220;
-    --foreground: #F8FAFC;
+    --background: #0B0F19;
+    --foreground: #F9FAFB;
   }
 }
 
@@ -102,4 +59,13 @@ body {
 
 .perspective-1000 {
   perspective: 1000px;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

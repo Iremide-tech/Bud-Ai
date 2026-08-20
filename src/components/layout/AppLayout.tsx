@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Home, Shield, Settings, Sparkles, User, Menu, X } from 'lucide-react';
+import { Home, Shield, Settings, Sparkles, User, Menu, X, MessageSquare } from 'lucide-react';
 import clsx from 'clsx';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -13,54 +13,56 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [isSidebarOpen, setSidebarOpen] = useState(false);
 
   const isParentMode = pathname?.startsWith('/parent');
+  const isAuthScreen = !userProfile && pathname === '/';
+
+  if (isAuthScreen) {
+    return <div className="min-h-screen bg-white">{children}</div>;
+  }
 
   const navItems = isParentMode
     ? [
-      { icon: Shield, label: 'Dashboard', href: '/parent' },
-      { icon: User, label: 'Profiles', href: '/parent/profiles' },
-      { icon: Settings, label: 'Settings', href: '/parent/settings' },
-    ]
+        { icon: Shield, label: 'Dashboard', href: '/parent' },
+        { icon: User, label: 'Profiles', href: '/parent/profiles' },
+        { icon: Settings, label: 'Settings', href: '/parent/settings' },
+      ]
     : [
-      { icon: Home, label: 'Chat', href: '/' },
-      { icon: Sparkles, label: 'Games', href: '/games' },
-      { icon: User, label: 'My Profile', href: '/profile' },
-    ];
+        { icon: MessageSquare, label: 'Chat', href: '/' },
+        { icon: Sparkles, label: 'Games', href: '/games' },
+        { icon: User, label: 'Profile', href: '/profile' },
+      ];
 
   return (
-    <div className={clsx(
-      "flex h-screen overflow-hidden transition-colors duration-300",
-      isParentMode ? "bg-slate-50" : "bg-bg-child"
-    )}>
+    <div className="flex h-screen overflow-hidden bg-white text-slate-900">
       {isSidebarOpen && (
         <div
-          className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 md:hidden"
+          className="fixed inset-0 bg-black/30 z-40 md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      <aside className={clsx(
-        "fixed inset-y-0 left-0 z-50 w-72 transform bg-white border-r border-slate-200 shadow-sm transition-transform duration-300 ease-out md:static md:translate-x-0 md:w-64",
-        !isSidebarOpen && "-translate-x-full"
-      )}>
-        <div className="flex flex-col h-full p-6">
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-brand-primary rounded-xl">
-                <Sparkles className="w-5 h-5 md:w-6 md:h-6 text-white" />
+      <aside
+        className={clsx(
+          "fixed inset-y-0 left-0 z-50 w-64 bg-[#F9FAFB] border-r border-slate-200 transition-transform duration-200 md:static md:translate-x-0",
+          !isSidebarOpen && "-translate-x-full"
+        )}
+      >
+        <div className="flex h-full flex-col p-4">
+          <div className="mb-6 flex items-center justify-between px-2">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900 text-white">
+                <MessageSquare className="h-4 w-4" />
               </div>
-              <h1 className="text-xl font-semibold text-slate-900">
-                AI-Bud
-              </h1>
+              <span className="text-sm font-semibold tracking-tight">AI-Bud</span>
             </div>
             <button
               onClick={() => setSidebarOpen(false)}
-              className="p-2 rounded-lg bg-slate-100 text-slate-500 md:hidden"
+              className="rounded-md p-1 text-slate-500 hover:bg-slate-200 md:hidden"
             >
-              <X className="w-5 h-5" />
+              <X className="h-4 w-4" />
             </button>
           </div>
 
-          <nav className="flex-1 space-y-1">
+          <nav className="space-y-1">
             {navItems.map((item) => {
               const isActive = pathname === item.href;
               return (
@@ -71,52 +73,43 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                     if (window.innerWidth < 768) setSidebarOpen(false);
                   }}
                   className={clsx(
-                    "flex items-center gap-3 px-4 py-3 rounded-xl transition-colors duration-200",
+                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
                     isActive
-                      ? "bg-brand-primary text-white"
-                      : "text-slate-600 hover:bg-slate-100"
+                      ? "bg-white text-slate-900 shadow-sm border border-slate-200"
+                      : "text-slate-600 hover:bg-white hover:text-slate-900"
                   )}
                 >
-                  <item.icon className="w-5 h-5" />
-                  <span className="font-medium">{item.label}</span>
+                  <item.icon className="h-4 w-4" />
+                  <span>{item.label}</span>
                 </Link>
               );
             })}
           </nav>
 
-          {(userProfile?.age && userProfile.age < 18) && (
-            <div className="mt-auto pt-6 border-t border-slate-100">
-              <Link
-                href={isParentMode ? "/" : "/parent"}
-                className="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-slate-500 rounded-xl hover:bg-slate-100 transition-colors"
-              >
-                Switch to {isParentMode ? "Kid" : "Parent"} Mode
-              </Link>
+          <div className="mt-auto border-t border-slate-200 pt-4 px-2">
+            <div className="text-xs text-slate-500">
+              {userProfile?.username || 'Guest'}
             </div>
-          )}
+            <div className="text-xs text-slate-400 truncate">
+              {userProfile?.budName || 'Bud'}
+            </div>
+          </div>
         </div>
       </aside>
 
-      <main className="flex-1 relative flex flex-col min-w-0 overflow-hidden">
-        <div className="md:hidden flex items-center justify-between p-4 bg-white border-b border-slate-200 z-30">
+      <main className="relative flex min-w-0 flex-1 flex-col">
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 md:hidden">
           <button
-            onClick={() => setSidebarOpen(!isSidebarOpen)}
-            className="p-2.5 rounded-xl bg-white border border-slate-200 text-brand-primary active:scale-95 transition-transform"
+            onClick={() => setSidebarOpen(true)}
+            className="rounded-md border border-slate-200 p-2 text-slate-700"
           >
-            <Menu className="w-5 h-5" />
+            <Menu className="h-4 w-4" />
           </button>
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-brand-primary" />
-            <span className="font-semibold text-slate-800">AI-Bud</span>
-          </div>
-          <div className="w-10" />
+          <span className="text-sm font-medium">AI-Bud</span>
+          <div className="w-9" />
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth no-scrollbar">
-          <div className="max-w-4xl mx-auto h-full flex flex-col">
-            {children}
-          </div>
-        </div>
+        <div className="flex-1 overflow-hidden">{children}</div>
       </main>
     </div>
   );

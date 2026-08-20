@@ -10,8 +10,8 @@ export default function Home() {
 
   if (isLoading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-bg-child">
-        <Loader2 className="w-12 h-12 text-brand-primary animate-spin" />
+      <div className="h-screen flex items-center justify-center bg-white">
+        <Loader2 className="w-6 h-6 text-slate-400 animate-spin" />
       </div>
     );
   }
@@ -20,9 +20,5 @@ export default function Home() {
     return <Login />;
   }
 
-  return (
-    <div className="h-full">
-      <ChatInterface />
-    </div>
-  );
+  return <ChatInterface />;
 }
