@@ -1,5 +1,6 @@
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
+import GoogleProvider from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
 import { Collection } from "mongodb";
 import { getDatabase } from "@/lib/mongodb";
@@ -7,7 +8,10 @@ import { getDatabase } from "@/lib/mongodb";
 export type StoredUser = {
     id: string;
     username: string;
-    password: string;
+    password?: string;
+    email?: string;
+    image?: string;
+    provider?: "credentials" | "google";
     age: number;
     gender: string;
     occupation: string;
@@ -21,9 +25,11 @@ type SessionUser = {
     gender: string;
     occupation: string;
     budName: string;
+    email?: string;
+    image?: string;
 };
 
-type RegisterUserInput = Omit<StoredUser, "id" | "password"> & {
+type RegisterUserInput = Omit<StoredUser, "id" | "password" | "provider"> & {
     password: string;
 };
 
@@ -52,6 +58,8 @@ function toSessionUser(user: StoredUser): SessionUser {
         gender: user.gender,
         occupation: user.occupation,
         budName: user.budName || "Bud",
+        email: user.email,
+        image: user.image,
     };
 }
 
@@ -61,6 +69,10 @@ async function getUsersCollection(): Promise<Collection<StoredUser>> {
             const db = await getDatabase();
             const collection = db.collection<StoredUser>("users");
             await collection.createIndex({ username: 1 }, { unique: true });
+            await collection.createIndex(
+                { email: 1 },
+                { unique: true, sparse: true }
+            );
             return collection;
         })();
     }
@@ -71,6 +83,81 @@ async function getUsersCollection(): Promise<Collection<StoredUser>> {
 export async function findUserByUsername(username: string): Promise<StoredUser | null> {
     const users = await getUsersCollection();
     return users.findOne({ username: normalizeUsername(username) });
+}
+
+export async function findUserByEmail(email: string): Promise<StoredUser | null> {
+    const users = await getUsersCollection();
+    return users.findOne({ email: email.trim().toLowerCase() });
+}
+
+function buildUsernameFromGoogle(name?: string | null, email?: string | null) {
+    const fromName = (name || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9_]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 24);
+
+    if (fromName.length >= 3) return fromName;
+
+    const fromEmail = (email || "user")
+        .split("@")[0]
+        .toLowerCase()
+        .replace(/[^a-z0-9_]+/g, "_")
+        .slice(0, 24);
+
+    return fromEmail || `user_${Date.now().toString().slice(-6)}`;
+}
+
+async function ensureUniqueUsername(base: string) {
+    let candidate = normalizeUsername(base) || `user_${Date.now().toString().slice(-6)}`;
+    let suffix = 0;
+
+    while (await findUserByUsername(candidate)) {
+        suffix += 1;
+        candidate = `${base.slice(0, 20)}_${suffix}`;
+    }
+
+    return candidate;
+}
+
+export async function upsertGoogleUser(input: {
+    email: string;
+    name?: string | null;
+    image?: string | null;
+}): Promise<StoredUser> {
+    const email = input.email.trim().toLowerCase();
+    const existing = await findUserByEmail(email);
+
+    if (existing) {
+        const users = await getUsersCollection();
+        const updates: Partial<StoredUser> = {
+            provider: "google",
+            image: input.image || existing.image,
+        };
+
+        await users.updateOne({ email }, { $set: updates });
+        return { ...existing, ...updates };
+    }
+
+    const username = await ensureUniqueUsername(
+        buildUsernameFromGoogle(input.name, email)
+    );
+
+    const newUser: StoredUser = {
+        id: Date.now().toString(),
+        username,
+        email,
+        image: input.image || undefined,
+        provider: "google",
+        age: 18,
+        gender: "Rather not say",
+        occupation: "Explorer",
+        budName: "Bud",
+    };
+
+    const users = await getUsersCollection();
+    await users.insertOne(newUser);
+    return newUser;
 }
 
 export async function updateUserByUsername(
@@ -87,36 +174,93 @@ export function getAuthOptions(): NextAuthOptions {
         return cachedAuthOptions;
     }
 
-    cachedAuthOptions = {
-        providers: [
-            CredentialsProvider({
-                name: "Credentials",
-                credentials: {
-                    username: { label: "Username", type: "text" },
-                    password: { label: "Password", type: "password" },
+    const providers: NextAuthOptions["providers"] = [
+        CredentialsProvider({
+            name: "Credentials",
+            credentials: {
+                username: { label: "Username", type: "text" },
+                password: { label: "Password", type: "password" },
+            },
+            async authorize(credentials) {
+                if (!credentials?.username || !credentials?.password) return null;
+
+                const username = normalizeUsername(credentials.username);
+                if (!username) return null;
+
+                const user = await findUserByUsername(username);
+                if (!user || !user.password) return null;
+
+                const passwordMatches = await bcrypt.compare(credentials.password, user.password);
+                if (!passwordMatches) return null;
+
+                const sessionUser = toSessionUser(user);
+                return {
+                    ...sessionUser,
+                    name: sessionUser.username,
+                    email: sessionUser.email,
+                    image: sessionUser.image,
+                };
+            }
+        })
+    ];
+
+    if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+        providers.unshift(
+            GoogleProvider({
+                clientId: process.env.GOOGLE_CLIENT_ID,
+                clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+                authorization: {
+                    params: {
+                        prompt: "consent",
+                        access_type: "offline",
+                        response_type: "code",
+                    },
                 },
-                async authorize(credentials) {
-                    if (!credentials?.username || !credentials?.password) return null;
-
-                    const username = normalizeUsername(credentials.username);
-                    if (!username) return null;
-
-                    const user = await findUserByUsername(username);
-                    if (!user) return null;
-
-                    const passwordMatches = await bcrypt.compare(credentials.password, user.password);
-                    if (!passwordMatches) return null;
-
-                    const sessionUser = toSessionUser(user);
-                    return {
-                        ...sessionUser,
-                        name: sessionUser.username,
-                    };
-                }
             })
-        ],
+        );
+    }
+
+    cachedAuthOptions = {
+        providers,
         callbacks: {
-            async jwt({ token, user, trigger }) {
+            async signIn({ user, account }) {
+                if (account?.provider === "google") {
+                    if (!user.email) return false;
+                    try {
+                        await upsertGoogleUser({
+                            email: user.email,
+                            name: user.name,
+                            image: user.image,
+                        });
+                        return true;
+                    } catch (error) {
+                        console.error("Google sign-in upsert failed:", error);
+                        return false;
+                    }
+                }
+                return true;
+            },
+            async jwt({ token, user, account, trigger }) {
+                if (account?.provider === "google" && user?.email) {
+                    try {
+                        const dbUser = await findUserByEmail(user.email);
+                        if (dbUser) {
+                            const sessionUser = toSessionUser(dbUser);
+                            token.id = sessionUser.id;
+                            token.username = sessionUser.username;
+                            token.age = sessionUser.age;
+                            token.gender = sessionUser.gender;
+                            token.occupation = sessionUser.occupation;
+                            token.budName = sessionUser.budName;
+                            token.email = sessionUser.email;
+                            token.picture = sessionUser.image;
+                        }
+                    } catch (error) {
+                        console.error("Failed to load Google user into token:", error);
+                    }
+                    return token;
+                }
+
                 if (user) {
                     const sessionUser = user as typeof user & SessionUser;
                     token.id = sessionUser.id;
@@ -125,10 +269,11 @@ export function getAuthOptions(): NextAuthOptions {
                     token.gender = sessionUser.gender;
                     token.occupation = sessionUser.occupation;
                     token.budName = sessionUser.budName || "Bud";
+                    token.email = sessionUser.email;
+                    token.picture = sessionUser.image;
                     return token;
                 }
 
-                // Keep JWT in sync with MongoDB after profile / bud-name updates.
                 if (trigger === "update" && token.username) {
                     try {
                         const freshUser = await findUserByUsername(String(token.username));
@@ -140,6 +285,8 @@ export function getAuthOptions(): NextAuthOptions {
                             token.gender = sessionUser.gender;
                             token.occupation = sessionUser.occupation;
                             token.budName = sessionUser.budName;
+                            token.email = sessionUser.email;
+                            token.picture = sessionUser.image;
                         }
                     } catch (error) {
                         console.error("Failed to refresh auth token from database:", error);
@@ -157,6 +304,8 @@ export function getAuthOptions(): NextAuthOptions {
                         gender: token.gender,
                         occupation: token.occupation,
                         budName: token.budName || "Bud",
+                        email: token.email,
+                        image: token.picture,
                     });
                 }
                 return session;
@@ -164,6 +313,7 @@ export function getAuthOptions(): NextAuthOptions {
         },
         pages: {
             signIn: "/",
+            error: "/",
         },
         session: {
             strategy: "jwt",
@@ -198,6 +348,8 @@ async function createUser(userData: RegisterUserInput & { username: string }) {
         occupation: userData.occupation,
         id: Date.now().toString(),
         budName: userData.budName || "Bud",
+        provider: "credentials",
+        email: userData.email,
     };
 
     const users = await getUsersCollection();

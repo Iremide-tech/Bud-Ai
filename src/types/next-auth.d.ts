@@ -11,6 +11,8 @@ declare module "next-auth" {
             gender: string;
             occupation: string;
             budName: string;
+            email?: string;
+            image?: string;
         };
     }
 
@@ -21,6 +23,8 @@ declare module "next-auth" {
         gender: string;
         occupation: string;
         budName: string;
+        email?: string;
+        image?: string;
     }
 }
 
@@ -32,5 +36,7 @@ declare module "next-auth/jwt" {
         gender?: string;
         occupation?: string;
         budName?: string;
+        email?: string;
+        picture?: string;
     }
 }
