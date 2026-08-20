@@ -35,7 +35,6 @@ export async function POST(request: Request) {
         const safeOccupation = typeof occupation === "string" && occupation.trim().length > 0 ? occupation.trim() : "Explorer";
 
         const user = await registerUser({
-            ...body,
             username: username.trim(),
             password,
             age: parsedAge,

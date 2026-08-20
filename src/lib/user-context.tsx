@@ -14,18 +14,19 @@ export type UserProfile = {
 type UserContextType = {
     userProfile: UserProfile | null;
     logout: () => void;
+    refreshProfile: () => Promise<void>;
     isLoading: boolean;
 };
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const { data: session, status } = useSession();
+    const { data: session, status, update } = useSession();
     const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
     useEffect(() => {
         if (session?.user) {
-            const u = session.user as any;
+            const u = session.user;
             setUserProfile({
                 username: u.username || u.name || "Friend",
                 age: u.age || 0,
@@ -39,11 +40,15 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, [session]);
 
     const logout = () => {
-        signOut();
+        signOut({ callbackUrl: "/" });
+    };
+
+    const refreshProfile = async () => {
+        await update();
     };
 
     return (
-        <UserContext.Provider value={{ userProfile, logout, isLoading: status === "loading" }}>
+        <UserContext.Provider value={{ userProfile, logout, refreshProfile, isLoading: status === "loading" }}>
             {children}
         </UserContext.Provider>
     );

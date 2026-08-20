@@ -28,6 +28,7 @@ type RegisterUserInput = Omit<StoredUser, "id" | "password"> & {
 };
 
 let usersCollectionPromise: Promise<Collection<StoredUser>> | null = null;
+let cachedAuthOptions: NextAuthOptions | null = null;
 
 function requireNextAuthSecret() {
     const secret = process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET;
@@ -37,6 +38,21 @@ function requireNextAuthSecret() {
     }
 
     return secret;
+}
+
+function normalizeUsername(username: string) {
+    return username.trim();
+}
+
+function toSessionUser(user: StoredUser): SessionUser {
+    return {
+        id: user.id,
+        username: user.username,
+        age: user.age,
+        gender: user.gender,
+        occupation: user.occupation,
+        budName: user.budName || "Bud",
+    };
 }
 
 async function getUsersCollection(): Promise<Collection<StoredUser>> {
@@ -54,7 +70,7 @@ async function getUsersCollection(): Promise<Collection<StoredUser>> {
 
 export async function findUserByUsername(username: string): Promise<StoredUser | null> {
     const users = await getUsersCollection();
-    return users.findOne({ username });
+    return users.findOne({ username: normalizeUsername(username) });
 }
 
 export async function updateUserByUsername(
@@ -62,55 +78,74 @@ export async function updateUserByUsername(
     updates: Partial<Pick<StoredUser, "age" | "gender" | "occupation" | "budName">>
 ): Promise<boolean> {
     const users = await getUsersCollection();
-    const result = await users.updateOne({ username }, { $set: updates });
+    const result = await users.updateOne({ username: normalizeUsername(username) }, { $set: updates });
     return result.matchedCount > 0;
 }
 
 export function getAuthOptions(): NextAuthOptions {
-    return {
+    if (cachedAuthOptions) {
+        return cachedAuthOptions;
+    }
+
+    cachedAuthOptions = {
         providers: [
             CredentialsProvider({
                 name: "Credentials",
                 credentials: {
                     username: { label: "Username", type: "text" },
                     password: { label: "Password", type: "password" },
-                    // Extra fields for signup (handled in a separate logic usually,
-                    // but we can piggyback or use an API route)
                 },
                 async authorize(credentials) {
                     if (!credentials?.username || !credentials?.password) return null;
 
-                    const user = await findUserByUsername(credentials.username);
+                    const username = normalizeUsername(credentials.username);
+                    if (!username) return null;
 
-                    if (user && bcrypt.compareSync(credentials.password, user.password)) {
-                        const sessionUser: SessionUser = {
-                            id: user.id,
-                            username: user.username,
-                            age: user.age,
-                            gender: user.gender,
-                            occupation: user.occupation,
-                            budName: user.budName || "Bud",
-                        };
-                        return {
-                            ...sessionUser,
-                            name: user.username,
-                        };
-                    }
-                    return null;
+                    const user = await findUserByUsername(username);
+                    if (!user) return null;
+
+                    const passwordMatches = await bcrypt.compare(credentials.password, user.password);
+                    if (!passwordMatches) return null;
+
+                    const sessionUser = toSessionUser(user);
+                    return {
+                        ...sessionUser,
+                        name: sessionUser.username,
+                    };
                 }
             })
         ],
         callbacks: {
-            async jwt({ token, user }) {
+            async jwt({ token, user, trigger }) {
                 if (user) {
                     const sessionUser = user as typeof user & SessionUser;
-                    token.id = user.id;
+                    token.id = sessionUser.id;
                     token.username = sessionUser.username;
                     token.age = sessionUser.age;
                     token.gender = sessionUser.gender;
                     token.occupation = sessionUser.occupation;
                     token.budName = sessionUser.budName || "Bud";
+                    return token;
                 }
+
+                // Keep JWT in sync with MongoDB after profile / bud-name updates.
+                if (trigger === "update" && token.username) {
+                    try {
+                        const freshUser = await findUserByUsername(String(token.username));
+                        if (freshUser) {
+                            const sessionUser = toSessionUser(freshUser);
+                            token.id = sessionUser.id;
+                            token.username = sessionUser.username;
+                            token.age = sessionUser.age;
+                            token.gender = sessionUser.gender;
+                            token.occupation = sessionUser.occupation;
+                            token.budName = sessionUser.budName;
+                        }
+                    } catch (error) {
+                        console.error("Failed to refresh auth token from database:", error);
+                    }
+                }
+
                 return token;
             },
             async session({ session, token }) {
@@ -121,7 +156,7 @@ export function getAuthOptions(): NextAuthOptions {
                         age: token.age,
                         gender: token.gender,
                         occupation: token.occupation,
-                        budName: token.budName,
+                        budName: token.budName || "Bud",
                     });
                 }
                 return session;
@@ -135,11 +170,12 @@ export function getAuthOptions(): NextAuthOptions {
         },
         secret: requireNextAuthSecret(),
     };
+
+    return cachedAuthOptions;
 }
 
-// Also export helper for user registration
 export function registerUser(userData: RegisterUserInput) {
-    const username = typeof userData.username === "string" ? userData.username.trim() : "";
+    const username = typeof userData.username === "string" ? normalizeUsername(userData.username) : "";
     return createUser({
         ...userData,
         username,
@@ -153,16 +189,27 @@ async function createUser(userData: RegisterUserInput & { username: string }) {
         throw new Error("User already exists");
     }
 
-    const hashedPassword = bcrypt.hashSync(userData.password, 10);
+    const hashedPassword = await bcrypt.hash(userData.password, 10);
     const newUser: StoredUser = {
-        ...userData,
-        id: Date.now().toString(),
+        username: userData.username,
         password: hashedPassword,
+        age: userData.age,
+        gender: userData.gender,
+        occupation: userData.occupation,
+        id: Date.now().toString(),
         budName: userData.budName || "Bud",
     };
 
     const users = await getUsersCollection();
-    await users.insertOne(newUser);
+    try {
+        await users.insertOne(newUser);
+    } catch (error: unknown) {
+        const mongoError = error as { code?: number };
+        if (mongoError.code === 11000) {
+            throw new Error("User already exists");
+        }
+        throw error;
+    }
 
     return newUser;
 }
